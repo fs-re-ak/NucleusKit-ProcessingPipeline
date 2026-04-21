@@ -1,0 +1,22 @@
+{
+  "model_version": "ModelV11",
+  "theta": 0.5,
+  "knn_k": 7,
+  "lda_ensemble_weight": 0.6,
+  "knn_ensemble_weight": 0.4,
+  "cv_folds": 5,
+  "min_class_samples": 5,
+  "shrinkage": "auto",
+  "stage2_classes": [
+    "Anger",
+    "Contempt",
+    "Disgust",
+    "Fear",
+    "Happiness",
+    "Sadness",
+    "Surprise"
+  ],
+  "artefact_percentile": 95.0,
+  "artefact_scale": 1.0,
+  "artefact_threshold": 14.689611
+}
