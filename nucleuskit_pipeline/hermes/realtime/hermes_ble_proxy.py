@@ -7,6 +7,7 @@ Runs asyncio on a dedicated thread; decodes EEG on worker threads via queues.
 from __future__ import annotations
 
 import asyncio
+import collections
 import datetime
 import queue
 import struct
@@ -42,13 +43,15 @@ class HermesBleProxy:
         self.is_connected = False
         self.client: BleakClient | None = None
         self.last_packet: int | None = None
-        self.packets: list[int] = []
-        self.samples_per_packets: list[bytes | None] = []
-        self.packet_received: list[bool] = []
+        self.packets: collections.deque[int] = collections.deque()
+        self.samples_per_packets: collections.deque[bytes | None] = collections.deque()
+        self.packet_received: collections.deque[bool] = collections.deque()
         self.mac_address = mac_address
 
-        self.eeg_queue: queue.Queue = queue.Queue()
-        self.motion_queue: queue.Queue = queue.Queue()
+        # Bounded queues: if the EEG/motion consumer falls behind, drop the
+        # oldest item rather than letting the queue grow without limit.
+        self.eeg_queue: queue.Queue = queue.Queue(maxsize=256)
+        self.motion_queue: queue.Queue = queue.Queue(maxsize=128)
 
         self.shutdown_event = asyncio.Event()
         self.loop: asyncio.AbstractEventLoop | None = None
@@ -103,9 +106,15 @@ class HermesBleProxy:
                 "<hhhhhhhhh", data
             )
             timestamp_epoch = now.timestamp()
-            self.motion_queue.put_nowait(
-                (timestamp_epoch, ax_raw, ay_raw, az_raw, gx_raw, gy_raw, gz_raw, cx_raw, cy_raw, cz_raw)
-            )
+            item = (timestamp_epoch, ax_raw, ay_raw, az_raw, gx_raw, gy_raw, gz_raw, cx_raw, cy_raw, cz_raw)
+            try:
+                self.motion_queue.put_nowait(item)
+            except queue.Full:
+                try:
+                    self.motion_queue.get_nowait()
+                except queue.Empty:
+                    pass
+                self.motion_queue.put_nowait(item)
         except Exception as e:
             print(f"[HermesBleProxy] motion_handler: {e}")
 
@@ -167,11 +176,19 @@ class HermesBleProxy:
             if not self.packet_received[0] and delay < 10:
                 break
 
-            self.eeg_queue.put((self.packet_received[0], self.samples_per_packets[0], self.packets[0]))
+            item = (self.packet_received[0], self.samples_per_packets[0], self.packets[0])
+            try:
+                self.eeg_queue.put_nowait(item)
+            except queue.Full:
+                try:
+                    self.eeg_queue.get_nowait()
+                except queue.Empty:
+                    pass
+                self.eeg_queue.put_nowait(item)
 
-            self.packet_received = self.packet_received[1:]
-            self.samples_per_packets = self.samples_per_packets[1:]
-            self.packets = self.packets[1:]
+            self.packet_received.popleft()
+            self.samples_per_packets.popleft()
+            self.packets.popleft()
 
     def _run_async_main(self) -> None:
         # Windows: Proactor loop in a non-main thread breaks many asyncio BLE stacks; use Selector.

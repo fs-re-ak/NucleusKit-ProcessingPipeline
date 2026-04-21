@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import os
+import threading
 
 # Prefer PySide6 before pyqtgraph loads a different Qt binding.
 os.environ.setdefault("PYQTGRAPH_QT_LIB", "PySide6")
 
 import numpy as np
 import pyqtgraph as pg
+from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 from scipy.signal import butter, lfilter, lfilter_zi
 
@@ -64,6 +66,18 @@ class RealtimeEegPlot(QWidget):
             self._b = self._a = None
             self._filter_states = []
 
+        # Thread-safe accumulation buffer: BLE worker threads write here; the
+        # QTimer flushes it on the GUI thread at a fixed display rate (~30 FPS).
+        # This breaks the Qt event-queue backpressure that builds up when
+        # add_samples is connected via a queued signal to a high-rate producer.
+        self._pending_lock = threading.Lock()
+        self._pending_batches: list[np.ndarray] = []
+
+        self._flush_timer = QTimer(self)
+        self._flush_timer.setInterval(33)  # ~30 FPS
+        self._flush_timer.timeout.connect(self._flush_pending)
+        self._flush_timer.start()
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._win, stretch=1)
@@ -74,34 +88,65 @@ class RealtimeEegPlot(QWidget):
         if self._apply_filter and self._b is not None and self._a is not None:
             self._filter_states = [lfilter_zi(self._b, self._a) * 0 for _ in range(self._nb_channels)]
 
+    def enqueue_samples(self, samples: np.ndarray) -> None:
+        """Thread-safe entry point for producer threads (BLE worker, etc.).
+
+        Accumulates batches without touching Qt objects.  The QTimer calls
+        _flush_pending() on the GUI thread to drain and render them.
+        """
+        if not isinstance(samples, np.ndarray) or samples.ndim != 2 or samples.shape[1] != self._nb_channels:
+            return
+        with self._pending_lock:
+            self._pending_batches.append(samples)
+
+    def _flush_pending(self) -> None:
+        """Called on the GUI thread at ~30 Hz.  Drains all pending batches in one render pass."""
+        with self._pending_lock:
+            if not self._pending_batches:
+                return
+            batches = self._pending_batches
+            self._pending_batches = []
+
+        combined = np.concatenate(batches, axis=0)
+        self.add_samples(combined)
+
     def clear_buffers(self) -> None:
         for j in range(self._nb_channels):
             self._data_buffers[j].fill(0.0)
             self._curves[j].setData(self._data_buffers[j] + self._channel_offsets[j])
 
     def add_samples(self, samples: np.ndarray) -> None:
-        """Append rows of shape (n, nb_channels) to the scrolling buffers."""
+        """Append rows of shape (n, nb_channels) to the scrolling buffers.
+
+        Processes the entire batch at once: one lfilter call per channel, one
+        np.roll per channel, and one setData per channel — regardless of how
+        many samples are in the batch.  This keeps the GUI thread load constant
+        with respect to batch size and avoids the O(n*channels) paint events
+        that the previous per-sample loop generated.
+        """
         if not isinstance(samples, np.ndarray) or samples.ndim != 2 or samples.shape[1] != self._nb_channels:
             return
 
-        for i in range(samples.shape[0]):
-            sample = np.array(samples[i], dtype=np.float64, copy=True)
-            if self._ear_r_re_reference:
-                ref_signal = sample[self._ear_r_ch] / 2.0
-                sample -= ref_signal
+        n = samples.shape[0]
+        batch = np.array(samples, dtype=np.float64)
+
+        if self._ear_r_re_reference:
+            ref = batch[:, self._ear_r_ch : self._ear_r_ch + 1] / 2.0
+            batch -= ref
+
+        buf_len = len(self._data_buffers[0])
+
+        for j in range(self._nb_channels):
+            col = batch[:, j]
 
             if self._apply_filter and self._b is not None and self._a is not None:
-                filtered_sample = np.zeros(self._nb_channels)
-                for j in range(self._nb_channels):
-                    y, self._filter_states[j] = lfilter(
-                        self._b, self._a, [float(sample[j])], zi=self._filter_states[j]
-                    )
-                    filtered_sample[j] = float(y[0])
-            else:
-                filtered_sample = sample
+                col, self._filter_states[j] = lfilter(self._b, self._a, col, zi=self._filter_states[j])
 
-            for j in range(self._nb_channels):
-                buf = self._data_buffers[j]
-                buf[:] = np.roll(buf, -1)
-                buf[-1] = filtered_sample[j]
-                self._curves[j].setData(buf + self._channel_offsets[j])
+            buf = self._data_buffers[j]
+            if n >= buf_len:
+                buf[:] = col[-buf_len:]
+            else:
+                buf[:-n] = buf[n:]
+                buf[-n:] = col
+
+            self._curves[j].setData(buf + self._channel_offsets[j])

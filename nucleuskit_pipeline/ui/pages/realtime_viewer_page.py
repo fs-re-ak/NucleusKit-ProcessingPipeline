@@ -615,7 +615,7 @@ class RealtimeViewerPage(QWidget):
         def eeg_cb(samples: list) -> None:
             arr = np.asarray(samples, dtype=np.float64)
             if arr.ndim == 2 and arr.shape[1] == 8:
-                self._bridge.eeg.emit(arr)
+                self._eeg_plot.enqueue_samples(arr)
             with self._record_lock:
                 w = self._eeg_writer
                 if w is not None:
@@ -681,7 +681,9 @@ class RealtimeViewerPage(QWidget):
         self._plot_stack.addWidget(hermes_stream)
         self._plot_stack.addWidget(self._shimmer_plot)
 
-        self._bridge.eeg.connect(self._eeg_plot.add_samples)
+        # EEG samples are enqueued directly from the BLE worker thread into the
+        # plot's thread-safe buffer; the plot's QTimer flushes at ~30 FPS.
+        # This removes the high-rate Qt signal that was flooding the event queue.
         self._motion_bridge.motion.connect(self._hermes_motion_plot.add_motion_sample)
         self._shimmer_bridge.sample.connect(self._shimmer_plot.add_sample)
 
