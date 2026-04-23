@@ -19,6 +19,7 @@ Author(s):
     Winter 2026
 """
 
+from collections import deque
 from os import path
 import os
 import traceback
@@ -34,9 +35,15 @@ from nucleuskit_pipeline.hermes.emotion.realtime_classifier import StreamingEMGC
 from nucleuskit_pipeline.hermes.processorDevelopment.channel_fixer_release.channel_fixer.rms_columns import (
     normalize_rms_dataframe,
 )
+from nucleuskit_pipeline.hermes.processor.emotionsReportGenerator import generate_report
 from nucleuskit_pipeline.logging_utils import printInfo, printError
 
 DISCONNECT_VALUE = 187500.0
+
+# Fraction of samples in a window that must be hardware-invalid (NaN) before
+# the whole window is marked null.  Keeps brief jitter from producing spurious
+# nulls while still catching true electrode disconnects (~100% NaN).
+NULL_WINDOW_NAN_THRESHOLD = 0.10
 
 # HermesConstants storage order -> classifier feature_columns.json order
 # (AF8, AF7, CHEEK_R, CHEEK_L, EAR_R, AFz, BROW_L, NOSE)
@@ -104,6 +111,13 @@ def _compute_emotions_from_rms_csv(
     for _, row in df.iterrows():
         ts = float(row["Timestamp"])
         rms = row[list(channel_order)].to_numpy(dtype=float)
+
+        # Null RMS rows represent windows with lost samples — propagate as null.
+        if np.isnan(rms).any():
+            emotion_rows.append([ts] + [np.nan] * len(EMOTION_COLUMNS))
+            model_input_rows.append([ts] + [np.nan] * len(clf.feature_columns) + [None, np.nan])
+            continue
+
         x = _model_features_from_channel_rms(rms)
         proba, label, confidence = clf.infer(x)
         emotion_rows.append([ts] + [float(proba.get(c, 0.0)) for c in EMOTION_COLUMNS])
@@ -139,6 +153,7 @@ def _compute_emotions_from_rms_csv(
     model_df.to_csv(model_out, index=False)
 
     printInfo("[emotionsProcessor] Emotion computation completed (RMS-driven path)")
+    generate_report(recpath)
 
 
 def computeEmotions(recpath):
@@ -238,27 +253,45 @@ def computeEmotions(recpath):
         rms_rows = []
         model_input_rows = []
 
+        # Track whether each sample in the current window buffer had any NaN
+        # channel (invalid/disconnected hardware sample) before nan_to_num.
+        nan_flags: deque = deque(maxlen=clf.window_samples)
+
         for sample_idx in range(eeg_data.shape[0]):
             row = eeg_data[sample_idx, :]
+            nan_flags.append(bool(np.isnan(row).any()))
             row = np.nan_to_num(row, nan=0.0)
             proba = clf.push_sample(row)
             if proba is None:
                 continue
 
-            ts = float(len(emotion_rows) * 0.5)
-            emotion_rows.append([ts] + [float(proba.get(c, 0.0)) for c in EMOTION_COLUMNS])
+            # Center of the analysis window.  clf.time_sec is the end of the
+            # window (total_samples / sampling_rate); subtracting half the
+            # window duration gives the exact center on a clean 0.5 s grid.
+            ts = clf.time_sec - clf.window_sec / 2
 
-            rms = clf.last_channel_rms
-            if rms is not None:
-                rms_rows.append(np.concatenate([[ts], rms]))
+            window_has_lost_samples = (sum(nan_flags) / len(nan_flags)) > NULL_WINDOW_NAN_THRESHOLD
 
-            xf = clf.last_model_features
-            if xf is not None and clf.last_predicted_label is not None:
-                model_input_rows.append(
-                    [ts]
-                    + xf.tolist()
-                    + [clf.last_predicted_label, float(clf.last_predicted_confidence or 0.0)]
-                )
+            if window_has_lost_samples:
+                # Window contained hardware-invalid (disconnected) samples —
+                # emit a null row preserving the original timestamp.
+                emotion_rows.append([ts] + [np.nan] * len(EMOTION_COLUMNS))
+                rms_rows.append(np.concatenate([[ts], np.full(len(RMS_COLUMNS) - 1, np.nan)]))
+                # model_input_rows: skip null windows (diagnostic file only)
+            else:
+                emotion_rows.append([ts] + [float(proba.get(c, 0.0)) for c in EMOTION_COLUMNS])
+
+                rms = clf.last_channel_rms
+                if rms is not None:
+                    rms_rows.append(np.concatenate([[ts], rms]))
+
+                xf = clf.last_model_features
+                if xf is not None and clf.last_predicted_label is not None:
+                    model_input_rows.append(
+                        [ts]
+                        + xf.tolist()
+                        + [clf.last_predicted_label, float(clf.last_predicted_confidence or 0.0)]
+                    )
 
         if not emotion_rows:
             printError(
@@ -303,6 +336,7 @@ def computeEmotions(recpath):
             printError("[emotionsProcessor] rmsSignals.csv was needed but no RMS rows were collected")
 
         printInfo("[emotionsProcessor] Emotion computation completed")
+        generate_report(recpath)
 
     except Exception as e:
         printError(f"[emotionsProcessor] Unhandled error: {e}")

@@ -102,7 +102,9 @@ def remove_statistical_outliers(df, threshold=3):
         df: DataFrame with one column per EEG channel
 
     Returns:
-        DataFrame with outlier rows removed, index reset.
+        Tuple (cleaned_df, mask) where cleaned_df has outlier rows removed and
+        index reset, and mask is the boolean array indicating which of the
+        *input* rows were kept (used by callers to propagate parallel arrays).
     """
     # Build a boolean keep-mask one column at a time (O(1) extra memory per column)
     mask = np.ones(len(df), dtype=bool)
@@ -125,18 +127,27 @@ def remove_statistical_outliers(df, threshold=3):
     if removed > 0:
         printInfo(f"[cognitionProcessor] Removed {removed} outlier rows ({removed / len(df) * 100:.1f}%)")
 
-    return cleaned
+    return cleaned, mask
 
 
-def preprocess_eeg(df, sf=HermesDataInterface.SAMPLING_RATE):
+def preprocess_eeg(df, sf=HermesDataInterface.SAMPLING_RATE,
+                   timestamps=None, hardware_invalid=None):
     """
     Preprocess EEG data: filter and remove statistical outliers.
 
     Args:
         df: DataFrame with one column per EEG channel
+        sf: Sampling frequency in Hz
+        timestamps: Optional 1-D array of per-sample timestamps (seconds).
+            Passed through with the same row-wise filtering applied to df.
+        hardware_invalid: Optional boolean 1-D array marking samples that
+            were NaN in the original recording (hardware disconnects).
+            Passed through with the same row-wise filtering applied to df.
 
     Returns:
-        Preprocessed DataFrame, or None on failure.
+        Tuple (cleaned_df, timestamps, hardware_invalid).
+        cleaned_df is None on failure (timestamps and hardware_invalid
+        are also None in that case).
     """
     printInfo("[cognitionProcessor] Preprocessing EEG data")
 
@@ -145,21 +156,27 @@ def preprocess_eeg(df, sf=HermesDataInterface.SAMPLING_RATE):
     except BaseException as e:
         printError(f"[cognitionProcessor] bandpass_filter failed: {type(e).__name__}: {e}")
         printError(f"[cognitionProcessor] Traceback:\n{traceback.format_exc()}")
-        return None
+        return None, None, None
 
     try:
-        cleaned = remove_statistical_outliers(filtered)
+        cleaned, mask = remove_statistical_outliers(filtered)
     except BaseException as e:
         printError(f"[cognitionProcessor] remove_statistical_outliers failed: {type(e).__name__}: {e}")
         printError(f"[cognitionProcessor] Traceback:\n{traceback.format_exc()}")
-        return None
+        return None, None, None
+
     if cleaned.empty:
         printError("[cognitionProcessor] preprocess_eeg: DataFrame is empty after outlier removal — "
                    "all rows were flagged as outliers. Check signal quality.")
-        return None
+        return None, None, None
+
+    if timestamps is not None:
+        timestamps = timestamps[mask]
+    if hardware_invalid is not None:
+        hardware_invalid = hardware_invalid[mask]
 
     printInfo(f"[cognitionProcessor] Preprocessing done: {len(cleaned)} samples remaining")
-    return cleaned
+    return cleaned, timestamps, hardware_invalid
 
 
 # ---------------------------------------------------------------------------
@@ -168,7 +185,7 @@ def preprocess_eeg(df, sf=HermesDataInterface.SAMPLING_RATE):
 
 def compute_eeg_power_bands(df, sf=HermesDataInterface.SAMPLING_RATE, window_duration=2,
                             bands_definitions=[[0, 4], [4, 8], [8, 13], [13, 22], [30, 50]],
-                            overlap=0.75):
+                            overlap=0.75, timestamps=None, hardware_invalid=None):
     """
     Compute EEG power in different frequency bands using Welch's method.
 
@@ -178,22 +195,31 @@ def compute_eeg_power_bands(df, sf=HermesDataInterface.SAMPLING_RATE, window_dur
         window_duration: Duration of analysis window in seconds
         bands_definitions: List of [low, high] frequency ranges for each band
         overlap: Fraction of window overlap (0–1)
+        timestamps: Optional 1-D array of per-sample timestamps (seconds).
+            When provided, the Timestamp of each window is set to the midpoint
+            of the first and last sample's original timestamps rather than being
+            derived from the post-preprocessing array index.
+        hardware_invalid: Optional boolean 1-D array (same length as df).
+            Windows where any sample is marked True are emitted as NaN rows
+            instead of running Welch, preserving timeline alignment.
 
     Returns:
         DataFrame with columns [Timestamp, channel, band, power], or None on failure.
+        Windows with lost samples have NaN in the power column.
     """
     printInfo("[cognitionProcessor] Computing EEG power bands")
 
     channel_names = df.columns.tolist()
     arr = df.to_numpy()
+    n_samples = len(df)
 
     window_samples = int(window_duration * sf)
     step_samples = int(window_samples * (1 - overlap))
-    n_windows = (len(df) - window_samples) // step_samples + 1
+    n_windows = (n_samples - window_samples) // step_samples + 1
 
     if n_windows <= 0:
         printError(f"[cognitionProcessor] compute_eeg_power_bands: not enough data for a single window "
-                   f"(samples={len(df)}, window={window_samples}). Recording may be too short.")
+                   f"(samples={n_samples}, window={window_samples}). Recording may be too short.")
         return None
 
     printInfo(f"[cognitionProcessor] Computing power bands: {n_windows} windows over {len(channel_names)} channels")
@@ -204,8 +230,30 @@ def compute_eeg_power_bands(df, sf=HermesDataInterface.SAMPLING_RATE, window_dur
     for win_idx in range(n_windows):
         start_idx = win_idx * step_samples
         end_idx = start_idx + window_samples
+
+        # Timestamp at the center of the window, using original recording time
+        # when available, otherwise fall back to sample-index / sf.
+        if timestamps is not None:
+            ts_window = timestamps[start_idx:end_idx]
+            timestamp = float((ts_window[0] + ts_window[-1]) / 2.0)
+        else:
+            timestamp = (start_idx + window_samples / 2) / sf
+
+        # Windows that contain hardware-invalid samples are emitted as NaN rows
+        # so downstream consumers can identify and exclude them while the
+        # timeline (timestamp column) remains intact.
+        if hardware_invalid is not None and hardware_invalid[start_idx:end_idx].any():
+            for ch_name in channel_names:
+                for band_name in band_names:
+                    rows.append({
+                        'Timestamp': timestamp,
+                        'channel': ch_name,
+                        'band': band_name,
+                        'power': np.nan,
+                    })
+            continue
+
         window_data = arr[start_idx:end_idx, :]
-        timestamp = (start_idx + window_samples / 2) / sf
 
         for ch_idx, ch_name in enumerate(channel_names):
             try:
@@ -215,8 +263,8 @@ def compute_eeg_power_bands(df, sf=HermesDataInterface.SAMPLING_RATE, window_dur
                 continue
 
             for band_idx, (low, high) in enumerate(bands_definitions):
-                mask = (freqs >= low) & (freqs <= high)
-                power = np.trapz(psd[mask], freqs[mask]) if mask.any() else 0.0
+                freq_mask = (freqs >= low) & (freqs <= high)
+                power = np.trapz(psd[freq_mask], freqs[freq_mask]) if freq_mask.any() else 0.0
 
                 rows.append({
                     'Timestamp': timestamp,
@@ -318,6 +366,10 @@ def _simple_resample(df, target_interval=0.5):
     """
     Resample a DataFrame to a fixed time interval using linear interpolation.
 
+    NaN values in source columns are preserved: output points that fall
+    entirely within a NaN gap (no valid source neighbour on both sides) are
+    emitted as NaN rather than being silently interpolated through.
+
     Args:
         df: DataFrame with a Timestamp column
         target_interval: Target time interval in seconds
@@ -328,13 +380,49 @@ def _simple_resample(df, target_interval=0.5):
     if 'Timestamp' not in df.columns:
         return df
 
-    max_time = df['Timestamp'].max()
+    src_ts = df['Timestamp'].to_numpy(dtype=float)
+    max_time = src_ts.max()
     new_timestamps = np.arange(0, max_time + target_interval, target_interval)
 
     resampled = {'Timestamp': new_timestamps}
     for col in df.columns:
-        if col != 'Timestamp':
-            resampled[col] = np.interp(new_timestamps, df['Timestamp'], df[col])
+        if col == 'Timestamp':
+            continue
+
+        y = df[col].to_numpy(dtype=float)
+        valid = ~np.isnan(y)
+
+        if not valid.any():
+            resampled[col] = np.full(len(new_timestamps), np.nan)
+            continue
+
+        # Interpolate only between valid (non-NaN) source points.
+        interp_values = np.interp(new_timestamps, src_ts[valid], y[valid],
+                                  left=np.nan, right=np.nan)
+
+        # Mark output points that fall entirely inside a NaN gap.  For each
+        # query point, find the bracketing valid source points; if the gap
+        # between them exceeds the expected step size (indicating a NaN source
+        # row between them), force the output to NaN.
+        valid_ts = src_ts[valid]
+        # expected maximum distance between two adjacent valid source timestamps
+        # (generous: two output steps to avoid false positives from minor jitter)
+        expected_step = target_interval * 2
+
+        # For each output point find the bracketing valid source indices.
+        left_idx = np.searchsorted(valid_ts, new_timestamps, side='right') - 1
+        right_idx = left_idx + 1
+
+        # Points that are inside the valid range on both sides
+        has_bracket = (left_idx >= 0) & (right_idx < len(valid_ts))
+        # Gap between the two enclosing valid source points (vectorised)
+        safe_l = np.clip(left_idx, 0, len(valid_ts) - 1)
+        safe_r = np.clip(right_idx, 0, len(valid_ts) - 1)
+        gap = valid_ts[safe_r] - valid_ts[safe_l]
+        in_gap = has_bracket & (gap > expected_step)
+
+        interp_values[in_gap] = np.nan
+        resampled[col] = interp_values
 
     return pd.DataFrame(resampled)
 
@@ -393,14 +481,28 @@ def computeCognitiveIndexes(recpath):
 
             printInfo(f"[cognitionProcessor] EEG loaded: {len(eegData)} samples, columns: {list(eegData.columns)}")
 
+            sf = HermesDataInterface.SAMPLING_RATE
+            # Original per-sample timestamps (seconds from recording start).
+            original_timestamps = np.arange(len(eegData), dtype=float) / sf
+            # Samples that were hardware-invalid (NaN) before any interpolation.
+            hardware_invalid = eegData.isna().any(axis=1).to_numpy()
+
             printInfo("[cognitionProcessor] Preprocessing EEG...")
-            eegData = preprocess_eeg(eegData)
+            eegData, original_timestamps, hardware_invalid = preprocess_eeg(
+                eegData, sf=sf,
+                timestamps=original_timestamps,
+                hardware_invalid=hardware_invalid,
+            )
             if eegData is None:
                 printError("[cognitionProcessor] preprocess_eeg returned None — cannot proceed")
                 return
 
             printInfo("[cognitionProcessor] Computing power bands...")
-            powerbands = compute_eeg_power_bands(eegData)
+            powerbands = compute_eeg_power_bands(
+                eegData,
+                timestamps=original_timestamps,
+                hardware_invalid=hardware_invalid,
+            )
             if powerbands is None:
                 printError("[cognitionProcessor] compute_eeg_power_bands returned None — cannot proceed")
                 return

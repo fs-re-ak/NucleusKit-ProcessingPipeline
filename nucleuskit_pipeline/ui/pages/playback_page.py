@@ -1,4 +1,4 @@
-"""Session playback: optional video (rawData/video.mp4) + emotions plot (results/Emotions.csv)."""
+"""Session playback: optional video (rawData/video.mp4) + metrics plot (results/*.csv)."""
 
 from __future__ import annotations
 
@@ -110,11 +110,59 @@ def _ordered_playback_columns(plot_cols: list[str]) -> list[str]:
     return out
 
 
+_METRIC_CONFIGS: dict[str, dict] = {
+    "emotions": {
+        "file": "Emotions.csv",
+        "label": "Emotions",
+        "y_label": "Probability",
+        "y_range": (0.0, 1.0),
+        "filled": True,
+    },
+    "arousal": {
+        "file": "Arousal.csv",
+        "label": "Arousal",
+        "y_label": "EDA (z-score)",
+        "y_range": None,
+        "filled": False,
+    },
+    "cognition": {
+        "file": "Cognition.csv",
+        "label": "Cognition",
+        "y_label": "Index",
+        "y_range": None,
+        "filled": False,
+    },
+    "heartdynamics": {
+        "file": "HeartDynamics.csv",
+        "label": "Heart Dynamics",
+        "y_label": "HRV Metrics",
+        "y_range": None,
+        "filled": False,
+    },
+}
+
+_METRIC_ORDER = ["emotions", "arousal", "cognition", "heartdynamics"]
+
+
 def _session_playback_paths(session_dir: str) -> tuple[str, str]:
     root = Path(session_dir).expanduser().resolve()
     video = root / "rawData" / "video.mp4"
     emotions = root / "results" / "Emotions.csv"
     return str(video), str(emotions)
+
+
+def _available_metrics(session_dir: str) -> list[str]:
+    """Return metric keys (in display order) whose result CSV exists."""
+    root = Path(session_dir).expanduser().resolve()
+    return [
+        key for key in _METRIC_ORDER
+        if (root / "results" / _METRIC_CONFIGS[key]["file"]).is_file()
+    ]
+
+
+def _metric_csv_path(session_dir: str, metric_key: str) -> str:
+    root = Path(session_dir).expanduser().resolve()
+    return str(root / "results" / _METRIC_CONFIGS[metric_key]["file"])
 
 
 def playback_events_dir(session_dir: str) -> Path:
@@ -125,10 +173,15 @@ def playback_annotations_path(session_dir: str) -> Path:
     return playback_events_dir(session_dir) / PLAYBACK_ANNOTATIONS_FILENAME
 
 
+def playback_annotations_results_path(session_dir: str) -> Path:
+    return Path(session_dir).expanduser().resolve() / "results" / PLAYBACK_ANNOTATIONS_FILENAME
+
+
 def _playback_preflight(session_dir: str) -> str | None:
-    _video, emotions = _session_playback_paths(session_dir)
-    if not Path(emotions).is_file():
-        return f"Missing emotions file:\n{emotions}"
+    available = _available_metrics(session_dir)
+    if not available:
+        files = ", ".join(cfg["file"] for cfg in _METRIC_CONFIGS.values())
+        return f"No result files found in results/.\nExpected at least one of: {files}"
     return None
 
 
@@ -139,6 +192,12 @@ def _session_has_video(session_dir: str) -> bool:
 
 def _clamp_t(t: float, t_min: float, t_max: float) -> float:
     return max(t_min, min(t_max, float(t)))
+
+
+def _fmt_ms(ms: int) -> str:
+    """Format milliseconds as M:SS (no zero-padding for minutes)."""
+    s = max(0, ms) // 1000
+    return f"{s // 60}:{s % 60:02d}"
 
 
 @dataclass
@@ -476,8 +535,8 @@ class PlaybackAnnotationManager(QObject):
         return None
 
 
-class EmotionsPlotWidget(QWidget):
-    """Filled probability areas vs time with a vertical playhead and per-series toggles."""
+class MetricsPlotWidget(QWidget):
+    """Time-series metrics plot with a vertical playhead and per-series toggles."""
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -579,15 +638,23 @@ class EmotionsPlotWidget(QWidget):
             if w is not None:
                 w.deleteLater()
 
-    def load_csv(self, path: str) -> str | None:
-        """Load Emotions.csv; returns error message or None on success."""
+    def load_csv(
+        self,
+        path: str,
+        *,
+        y_label: str = "Probability",
+        y_range: tuple[float, float] | None = (0.0, 1.0),
+        filled: bool = True,
+    ) -> str | None:
+        """Load a metrics CSV (must have a Timestamp column). Returns error or None."""
         try:
             df = pd.read_csv(path)
         except Exception as e:
             return f"Could not read {path}:\n{e}"
 
+        filename = Path(path).name
         if "Timestamp" not in df.columns:
-            return "Emotions.csv must contain a Timestamp column."
+            return f"{filename} must contain a Timestamp column."
 
         for c in self._curves:
             self._plot.removeItem(c)
@@ -609,18 +676,32 @@ class EmotionsPlotWidget(QWidget):
 
         ts = df["Timestamp"].to_numpy(dtype=np.float64)
         if ts.size == 0:
-            return "Emotions.csv has no rows."
+            return f"{filename} has no rows."
 
         self._t_min = float(np.nanmin(ts))
         self._t_max = float(np.nanmax(ts))
 
-        plot_cols = [c for c in EMOTION_COLUMNS if c in df.columns]
-        if not plot_cols:
+        # Prefer emotion column order when emotion columns are present.
+        emotion_cols = [c for c in EMOTION_COLUMNS if c in df.columns]
+        if emotion_cols:
+            plot_cols = _ordered_playback_columns(emotion_cols)
+        else:
             plot_cols = [c for c in df.columns if c != "Timestamp"]
 
-        plot_cols = _ordered_playback_columns(plot_cols)
-        x = ts
+        self._plot.setLabel("left", y_label)
 
+        if y_range is not None:
+            self._plot.setYRange(y_range[0], y_range[1], padding=0.02)
+        else:
+            all_vals = np.concatenate([df[c].to_numpy(dtype=np.float64) for c in plot_cols])
+            valid = all_vals[np.isfinite(all_vals)]
+            if valid.size > 0:
+                lo, hi = float(np.nanmin(valid)), float(np.nanmax(valid))
+                span = max(hi - lo, 1e-3)
+                pad = span * 0.08
+                self._plot.setYRange(lo - pad, hi + pad, padding=0)
+
+        x = ts
         emotion_idx = 0
         for col in plot_cols:
             y = df[col].to_numpy(dtype=np.float64)
@@ -637,13 +718,12 @@ class EmotionsPlotWidget(QWidget):
                 style_hex = QColor(ic).name(QColor.NameFormat.HexRgb)
                 emotion_idx += 1
 
-            curve = self._plot.plot(
-                x,
-                y,
-                pen=pen,
-                brush=brush,
-                fillLevel=0.0,
-            )
+            plot_kwargs: dict = {"pen": pen}
+            if filled:
+                plot_kwargs["brush"] = brush
+                plot_kwargs["fillLevel"] = 0.0
+
+            curve = self._plot.plot(x, y, **plot_kwargs)
             if col == "Neutral":
                 curve.setZValue(_Z_NEUTRAL)
             else:
@@ -685,15 +765,18 @@ class PlaybackPage(QWidget):
         self._video = QVideoWidget(self)
         self._player.setVideoOutput(self._video)
 
-        self._emotions = EmotionsPlotWidget(self)
+        self._metrics_plot = MetricsPlotWidget(self)
         self._ann_mgr = PlaybackAnnotationManager(
-            self._emotions.plot_widget(),
-            self._emotions.time_range,
+            self._metrics_plot.plot_widget(),
+            self._metrics_plot.time_range,
         )
         self._ann_mgr.changed.connect(self._on_annotations_changed)
         self._ann_mgr.selection_changed.connect(self._on_ann_selection_changed)
 
-        self._plot_scene = self._emotions.plot_widget().scene()
+        self._plot_scene = self._metrics_plot.plot_widget().scene()
+
+        self._current_metric: str | None = None
+        self._metric_buttons: dict[str, QRadioButton] = {}
         self._plot_scene.sigMouseClicked.connect(self._on_plot_scene_clicked)
 
         self._session_dir: str | None = None
@@ -749,8 +832,13 @@ class PlaybackPage(QWidget):
         ann_layout.addWidget(QLabel("Annotations"))
         ann_layout.addWidget(self._ann_table, stretch=1)
 
+        self._metric_bar = QWidget()
+        self._metric_layout = QHBoxLayout(self._metric_bar)
+        self._metric_layout.setContentsMargins(0, 2, 0, 2)
+        self._metric_layout.setSpacing(8)
+
         plot_split = QSplitter(Qt.Orientation.Horizontal)
-        plot_split.addWidget(self._emotions)
+        plot_split.addWidget(self._metrics_plot)
         plot_split.addWidget(ann_panel)
         plot_split.setStretchFactor(0, 3)
         plot_split.setStretchFactor(1, 1)
@@ -761,14 +849,20 @@ class PlaybackPage(QWidget):
         self._slider.sliderMoved.connect(self._on_slider_moved)
         self._slider.sliderReleased.connect(self._on_slider_released)
 
+        self._time_label = QLabel("0:00 / 0:00")
+        self._time_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self._time_label.setStyleSheet("font-variant-numeric: tabular-nums; min-width: 90px;")
+
         self._playback_bottom = QWidget()
         bottom_layout = QVBoxLayout(self._playback_bottom)
         bottom_layout.setContentsMargins(0, 0, 0, 0)
         bottom_layout.setSpacing(6)
         bottom_layout.addLayout(tool_row)
+        bottom_layout.addWidget(self._metric_bar)
         bottom_layout.addWidget(plot_split, stretch=1)
         slider_row = QHBoxLayout()
         slider_row.addWidget(self._slider, stretch=1)
+        slider_row.addWidget(self._time_label)
         bottom_layout.addLayout(slider_row)
 
         self._splitter = QSplitter(Qt.Orientation.Vertical)
@@ -1010,13 +1104,20 @@ class PlaybackPage(QWidget):
     def _save_annotations_file(self) -> None:
         if self._session_dir is None:
             return
-        path = playback_annotations_path(self._session_dir)
+        payload = json.dumps(self._ann_mgr.to_json_dict(), indent=2)
+        primary = playback_annotations_path(self._session_dir)
+        mirror = playback_annotations_results_path(self._session_dir)
         try:
             playback_events_dir(self._session_dir).mkdir(parents=True, exist_ok=True)
-            path.write_text(json.dumps(self._ann_mgr.to_json_dict(), indent=2), encoding="utf-8")
+            primary.write_text(payload, encoding="utf-8")
         except OSError as e:
             QMessageBox.warning(self, "Playback", f"Could not save annotations:\n{e}")
             return
+        try:
+            mirror.parent.mkdir(parents=True, exist_ok=True)
+            mirror.write_text(payload, encoding="utf-8")
+        except OSError as e:
+            QMessageBox.warning(self, "Playback", f"Annotations saved to features/events but could not mirror to results/:\n{e}")
         self._annotations_dirty = False
         self._save_ann.setEnabled(False)
 
@@ -1067,10 +1168,13 @@ class PlaybackPage(QWidget):
             self._save_ann.setEnabled(False)
         return True
 
+    def _update_time_label(self, position_ms: int, duration_ms: int) -> None:
+        self._time_label.setText(f"{_fmt_ms(position_ms)} / {_fmt_ms(duration_ms)}")
+
     def _playhead_from_elapsed_ms(self, elapsed_ms: int) -> None:
-        t_min, _t_max = self._emotions.time_range()
+        t_min, _t_max = self._metrics_plot.time_range()
         t = t_min + max(0, elapsed_ms) / 1000.0
-        self._emotions.set_playhead_seconds(t)
+        self._metrics_plot.set_playhead_seconds(t)
 
     def _set_video_pane_visible(self, visible: bool) -> None:
         self._video.setVisible(visible)
@@ -1088,6 +1192,7 @@ class PlaybackPage(QWidget):
         self._slider.setValue(self._metrics_position_ms)
         self._slider.blockSignals(False)
         self._playhead_from_elapsed_ms(self._metrics_position_ms)
+        self._update_time_label(self._metrics_position_ms, self._metrics_span_ms)
         if self._metrics_position_ms >= self._metrics_span_ms:
             self._metrics_timer.stop()
             self._play.setText("Play")
@@ -1106,9 +1211,19 @@ class PlaybackPage(QWidget):
         self._load_session(path)
 
     def _load_session(self, session_dir: str) -> None:
-        video_path, csv_path = _session_playback_paths(session_dir)
+        video_path, _ = _session_playback_paths(session_dir)
 
-        err = self._emotions.load_csv(csv_path)
+        available = _available_metrics(session_dir)
+        preferred = "emotions" if "emotions" in available else available[0]
+        cfg = _METRIC_CONFIGS[preferred]
+        csv_path = _metric_csv_path(session_dir, preferred)
+
+        err = self._metrics_plot.load_csv(
+            csv_path,
+            y_label=cfg["y_label"],
+            y_range=cfg.get("y_range"),
+            filled=cfg.get("filled", False),
+        )
         if err:
             QMessageBox.warning(self, "Playback", err)
             return
@@ -1116,10 +1231,12 @@ class PlaybackPage(QWidget):
         self._ann_mgr.clear()
         self._refresh_annotation_table()
         self._session_dir = str(Path(session_dir).expanduser().resolve())
+        self._current_metric = preferred
+        self._populate_metric_selector(available, selected=preferred)
         self._load_annotations_file()
 
         self._stop_metrics_playback()
-        t_min, t_max = self._emotions.time_range()
+        t_min, t_max = self._metrics_plot.time_range()
         span_s = max(0.0, t_max - t_min)
         self._metrics_span_ms = int(round(span_s * 1000.0))
 
@@ -1145,6 +1262,8 @@ class PlaybackPage(QWidget):
         else:
             self._slider.setRange(0, max(0, self._metrics_span_ms))
         self._slider.blockSignals(False)
+
+        self._update_time_label(0, self._metrics_span_ms if not self._has_video else 0)
 
         if not self._has_video:
             self._playhead_from_elapsed_ms(0)
@@ -1184,6 +1303,7 @@ class PlaybackPage(QWidget):
         self._slider.blockSignals(True)
         self._slider.setRange(0, max(0, duration_ms))
         self._slider.blockSignals(False)
+        self._update_time_label(self._player.position(), duration_ms)
 
     def _on_position_changed(self, position_ms: int) -> None:
         if not self._has_video:
@@ -1192,16 +1312,20 @@ class PlaybackPage(QWidget):
         self._slider.setValue(position_ms)
         self._slider.blockSignals(False)
         self._playhead_from_elapsed_ms(position_ms)
+        self._update_time_label(position_ms, self._player.duration())
 
     def _on_slider_moved(self, position_ms: int) -> None:
         if self._has_video:
             self._player.setPosition(position_ms)
+            duration_ms = self._player.duration()
         else:
             if self._metrics_timer.isActive():
                 self._metrics_timer.stop()
                 self._play.setText("Play")
             self._metrics_position_ms = position_ms
+            duration_ms = self._metrics_span_ms
         self._playhead_from_elapsed_ms(position_ms)
+        self._update_time_label(position_ms, duration_ms)
 
     def _on_slider_released(self) -> None:
         if not self._slider.isEnabled():
@@ -1212,3 +1336,77 @@ class PlaybackPage(QWidget):
         else:
             self._metrics_position_ms = ms
         self._playhead_from_elapsed_ms(ms)
+
+    # ------------------------------------------------------------------
+    # Metric selector
+    # ------------------------------------------------------------------
+
+    def _populate_metric_selector(self, available: list[str], selected: str | None = None) -> None:
+        """Rebuild the metric selector bar showing only available result files."""
+        while self._metric_layout.count():
+            item = self._metric_layout.takeAt(0)
+            w = item.widget()
+            if w is not None:
+                w.deleteLater()
+        self._metric_buttons.clear()
+
+        if not available:
+            return
+
+        lbl = QLabel("Metric:")
+        self._metric_layout.addWidget(lbl)
+
+        for key in _METRIC_ORDER:
+            if key not in available:
+                continue
+            cfg = _METRIC_CONFIGS[key]
+            btn = QRadioButton(cfg["label"])
+            btn.setChecked(key == selected)
+            btn.toggled.connect(
+                lambda checked, k=key: self._on_metric_button_toggled(k, checked)
+            )
+            self._metric_buttons[key] = btn
+            self._metric_layout.addWidget(btn)
+
+        self._metric_layout.addStretch(1)
+
+    def _on_metric_button_toggled(self, key: str, checked: bool) -> None:
+        if not checked or key == self._current_metric:
+            return
+        self._switch_metric(key)
+
+    def _switch_metric(self, key: str) -> None:
+        """Load a different metric CSV into the plot without reloading the session."""
+        if self._session_dir is None:
+            return
+        cfg = _METRIC_CONFIGS[key]
+        path = _metric_csv_path(self._session_dir, key)
+        err = self._metrics_plot.load_csv(
+            path,
+            y_label=cfg["y_label"],
+            y_range=cfg.get("y_range"),
+            filled=cfg.get("filled", False),
+        )
+        if err:
+            QMessageBox.warning(self, "Playback", err)
+            # Restore the previous button selection
+            prev = self._current_metric
+            if prev and prev in self._metric_buttons:
+                self._metric_buttons[prev].blockSignals(True)
+                self._metric_buttons[prev].setChecked(True)
+                self._metric_buttons[prev].blockSignals(False)
+            return
+        self._current_metric = key
+
+        if not self._has_video:
+            t_min, t_max = self._metrics_plot.time_range()
+            span_s = max(0.0, t_max - t_min)
+            self._metrics_span_ms = int(round(span_s * 1000.0))
+            self._stop_metrics_playback()
+            self._metrics_position_ms = 0
+            self._slider.blockSignals(True)
+            self._slider.setValue(0)
+            self._slider.setRange(0, max(0, self._metrics_span_ms))
+            self._slider.blockSignals(False)
+            self._playhead_from_elapsed_ms(0)
+            self._play.setText("Play")

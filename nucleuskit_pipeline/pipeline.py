@@ -17,6 +17,7 @@ from nucleuskit_pipeline.hermes.processor.fileTools import ensure_session_rawdat
 from nucleuskit_pipeline.hermes.processor.HermesPOVConversion import convertPOVMovieClip
 from nucleuskit_pipeline.hermes.processor.metaInfoTools import extractMetaInfo
 from nucleuskit_pipeline.hermes.processor.session_video_rotation import ensure_session_video_rotated_180
+from nucleuskit_pipeline.events import seedPlaybackAnnotations
 from nucleuskit_pipeline.logging_utils import printError, printInfo, printWarning
 from nucleuskit_pipeline.position import processGPS, processUWB
 from nucleuskit_pipeline.shimmer import computeArousal, computeHeartDynamics
@@ -117,6 +118,9 @@ class NucleusKitProcessingPipeline(BasePipeline):
 
         printInfo("- Adding event processing")
         self.processingSteps.append(eventProcessor)
+
+        printInfo("- Adding playback annotation seeding from events.csv")
+        self.processingSteps.append(seedPlaybackAnnotations)
 
         printInfo("- Adding position processing")
         self.processingSteps.append(processUWB)

@@ -23,7 +23,7 @@ Usage
   from inference import TwoStageClassifier
 
   # Stateless (default — identical to V10 behaviour)
-  clf = TwoStageClassifier.load("data/features/2026-04-22_ModelV12/classifier")
+  clf = TwoStageClassifier.load("data/features/2026-03-21_ModelV12/classifier")
 
   # Stateful with 2-window post-artefact cooldown
   clf = TwoStageClassifier.load("…/classifier", cooldown_windows=2)
@@ -220,65 +220,6 @@ class TwoStageClassifier:
     # Public prediction API
     # ------------------------------------------------------------------
 
-    def infer(self, x: np.ndarray) -> Tuple[Dict[str, float], str, float]:
-        """Single forward pass: class probabilities, discrete label, and label confidence.
-
-        Use this when you need both ``predict_proba`` and ``predict`` outputs for the
-        same window.  Calling those methods separately would apply the artefact gate
-        twice and break ``cooldown_windows`` state.
-
-        Parameters
-        ----------
-        x : np.ndarray, shape (n_features,) or (1, n_features)
-
-        Returns
-        -------
-        proba_dict : dict
-            Same mapping as :meth:`predict_proba`.
-        label : str
-            Same label as :meth:`predict`.
-        confidence : float
-            Same confidence as :meth:`predict`.
-        """
-        x2d = self._prepare_input(x)
-
-        # --- Artefact gate (stateful when cooldown_windows > 0) ---
-        if self.artefact_threshold is not None:
-            if x2d[0, self._avg_rms_idx] > self.artefact_threshold:
-                self._artefact_cooldown_remaining = self.cooldown_windows
-                result: Dict[str, float] = {self.NEUTRAL_LABEL: 1.0}
-                for label in self._emotion_classes:
-                    result[str(label)] = 0.0
-                return result, self.ARTEFACT_LABEL, 1.0
-            if self._artefact_cooldown_remaining > 0:
-                self._artefact_cooldown_remaining -= 1
-                result = {self.NEUTRAL_LABEL: 1.0}
-                for label in self._emotion_classes:
-                    result[str(label)] = 0.0
-                return result, self.ARTEFACT_LABEL, 1.0
-
-        s1_proba = self._stage1.predict_proba(x2d)[0]
-        neutral_col = list(self._stage1.classes_).index(0)
-        p_neutral = float(s1_proba[neutral_col])
-        p_active = float(s1_proba[self._active_col_idx])
-
-        ens = self._stage2_ensemble(x2d)
-        scaled_ens = ens * p_active
-
-        result = {self.NEUTRAL_LABEL: p_neutral}
-        for label, prob in zip(self._emotion_classes, scaled_ens):
-            result[str(label)] = float(prob)
-
-        if p_active < self.theta:
-            return result, self.NEUTRAL_LABEL, float(1.0 - p_active)
-
-        best_idx = int(np.argmax(ens))
-        return (
-            result,
-            str(self._emotion_classes[best_idx]),
-            float(ens[best_idx]),
-        )
-
     def predict(self, x: np.ndarray) -> Tuple[str, float]:
         """Predict the emotion label for a single feature vector.
 
@@ -294,8 +235,26 @@ class TwoStageClassifier:
         label : str
         confidence : float
         """
-        _, label, confidence = self.infer(x)
-        return label, confidence
+        x2d = self._prepare_input(x)
+
+        # --- Artefact gate (stateful when cooldown_windows > 0) ---
+        if self.artefact_threshold is not None:
+            if x2d[0, self._avg_rms_idx] > self.artefact_threshold:
+                self._artefact_cooldown_remaining = self.cooldown_windows
+                return self.ARTEFACT_LABEL, 1.0
+            elif self._artefact_cooldown_remaining > 0:
+                self._artefact_cooldown_remaining -= 1
+                return self.ARTEFACT_LABEL, 1.0
+
+        # --- Stage 1 ---
+        p_active = self._stage1.predict_proba(x2d)[0, self._active_col_idx]
+        if p_active < self.theta:
+            return self.NEUTRAL_LABEL, float(1.0 - p_active)
+
+        # --- Stage 2 ---
+        ens = self._stage2_ensemble(x2d)
+        best_idx = int(np.argmax(ens))
+        return str(self._emotion_classes[best_idx]), float(ens[best_idx])
 
     def predict_proba(self, x: np.ndarray) -> Dict[str, float]:
         """Return a probability distribution over all labels (including Neutral).
@@ -310,8 +269,36 @@ class TwoStageClassifier:
         -------
         dict mapping label → probability
         """
-        proba_dict, _, _ = self.infer(x)
-        return proba_dict
+        x2d = self._prepare_input(x)
+
+        # --- Artefact gate (stateful when cooldown_windows > 0) ---
+        if self.artefact_threshold is not None:
+            if x2d[0, self._avg_rms_idx] > self.artefact_threshold:
+                self._artefact_cooldown_remaining = self.cooldown_windows
+                result: Dict[str, float] = {self.NEUTRAL_LABEL: 1.0}
+                for label in self._emotion_classes:
+                    result[str(label)] = 0.0
+                return result
+            elif self._artefact_cooldown_remaining > 0:
+                self._artefact_cooldown_remaining -= 1
+                result = {self.NEUTRAL_LABEL: 1.0}
+                for label in self._emotion_classes:
+                    result[str(label)] = 0.0
+                return result
+
+        s1_proba = self._stage1.predict_proba(x2d)[0]
+        neutral_col = list(self._stage1.classes_).index(0)
+        p_neutral = float(s1_proba[neutral_col])
+        p_active = float(s1_proba[self._active_col_idx])
+
+        ens = self._stage2_ensemble(x2d)
+        scaled_ens = ens * p_active
+
+        result = {self.NEUTRAL_LABEL: p_neutral}
+        for label, prob in zip(self._emotion_classes, scaled_ens):
+            result[str(label)] = float(prob)
+
+        return result
 
     def predict_from_dict(
         self, feature_dict: Dict[str, float]

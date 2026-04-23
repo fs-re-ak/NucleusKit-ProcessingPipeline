@@ -1,5 +1,5 @@
 ﻿"""
-Real-time streaming EMG emotion classifier.
+Real-time streaming EMG emotion classifier — ModelV12.
 
 Provides ``StreamingEMGClassifier``, a stateful object that accepts one raw
 EEG/EMG sample at a time and periodically fires an emotion probability

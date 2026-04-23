@@ -89,22 +89,9 @@ class OfflinePage(QWidget):
         sess_row.addWidget(self._session, 1)
         sess_row.addWidget(browse_s)
 
-        self._config = QLineEdit()
-        self._config.setPlaceholderText("Optional POV config JSON…")
-        browse_c = QPushButton("Browse…")
-        browse_c.clicked.connect(self._browse_config)
-
-        cfg_row = QHBoxLayout()
-        cfg_row.addWidget(self._config, 1)
-        cfg_row.addWidget(browse_c)
-
         session_box = QGroupBox("Session (Hermes headset raw + Shimmer wristband as recorded)")
         sg = QVBoxLayout(session_box)
         sg.addLayout(sess_row)
-
-        config_box = QGroupBox("Optional POV config (JSON)")
-        cg = QVBoxLayout(config_box)
-        cg.addLayout(cfg_row)
 
         self._run = QPushButton("Run pipeline")
         self._run.clicked.connect(self._run_clicked)
@@ -127,7 +114,6 @@ class OfflinePage(QWidget):
         layout = QVBoxLayout(self)
         layout.addLayout(top)
         layout.addWidget(session_box)
-        layout.addWidget(config_box)
         layout.addLayout(actions)
         layout.addWidget(log_box, 1)
 
@@ -140,21 +126,10 @@ class OfflinePage(QWidget):
         if path:
             self._session.setText(path)
 
-    def _browse_config(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Select nucleuskit_pipeline_config.json (or legacy hermes_standalone_config.json)",
-            "",
-            "JSON (*.json);;All files (*.*)",
-        )
-        if path:
-            self._config.setText(path)
-
     def _set_processing(self, running: bool) -> None:
         self._back.setEnabled(not running)
         self._run.setEnabled(not running)
         self._session.setEnabled(not running)
-        self._config.setEnabled(not running)
         self._progress.setVisible(running)
         self.processing_changed.emit(running)
 
@@ -168,7 +143,7 @@ class OfflinePage(QWidget):
             QMessageBox.information(self, "Busy", "A run is already in progress.")
             return
 
-        cfg = self._config.text().strip() or None
+        cfg = None
         self._set_processing(True)
         self._insert_log(f"\n--- Starting run: {folder!r} ---\n")
 
