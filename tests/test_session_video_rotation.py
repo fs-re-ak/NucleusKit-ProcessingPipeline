@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from nucleuskit_pipeline.hermes.processor.session_video_rotation import (
+from nucleuskit_pipeline.camera.processing import (
     MARKER_FILENAME,
     VIDEO_BASENAME,
     ensure_session_video_rotated_180,

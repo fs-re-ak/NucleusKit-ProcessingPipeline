@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from nucleuskit_pipeline.hermes.processor.rms_original_ops import (
+from nucleuskit_pipeline.hermes.processor.rms_ops import (
     append_operation,
     ensure_baseline_snapshot,
     operations_log_path,
