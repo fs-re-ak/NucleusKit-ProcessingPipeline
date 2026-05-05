@@ -13,6 +13,7 @@ from nucleuskit_pipeline.ui.pages.main_menu import MainMenuPage
 from nucleuskit_pipeline.ui.pages.mqtt_controller_page import MqttControllerPage
 from nucleuskit_pipeline.ui.pages.offline_page import OfflinePage
 from nucleuskit_pipeline.ui.pages.playback_page import PlaybackPage
+from nucleuskit_pipeline.ui.pages.ppg_fixer_page import PpgFixerPage
 from nucleuskit_pipeline.ui.pages.realtime_viewer_page import RealtimeViewerPage
 from nucleuskit_pipeline.ui.pages.revert_original_page import RevertOriginalPage
 from nucleuskit_pipeline.ui.pages.settings_page import SettingsPage, load_theme_setting
@@ -35,6 +36,7 @@ class MainWindow(QMainWindow):
         self._channel_fixer = ChannelFixerPage()
         self._channel_gain = ChannelGainPage()
         self._revert_original = RevertOriginalPage()
+        self._ppg_fixer = PpgFixerPage()
         self._settings = SettingsPage()
         self._realtime = RealtimeViewerPage()
         self._playback = PlaybackPage()
@@ -46,6 +48,7 @@ class MainWindow(QMainWindow):
         self._stack.addWidget(self._channel_fixer)
         self._stack.addWidget(self._channel_gain)
         self._stack.addWidget(self._revert_original)
+        self._stack.addWidget(self._ppg_fixer)
         self._stack.addWidget(self._settings)
         self._stack.addWidget(self._realtime)
         self._stack.addWidget(self._playback)
@@ -64,9 +67,11 @@ class MainWindow(QMainWindow):
         self._tools.open_channel_fixer.connect(lambda: self._stack.setCurrentWidget(self._channel_fixer))
         self._tools.open_channel_gain.connect(lambda: self._stack.setCurrentWidget(self._channel_gain))
         self._tools.open_revert_original.connect(lambda: self._stack.setCurrentWidget(self._revert_original))
+        self._tools.open_ppg_fixer.connect(lambda: self._stack.setCurrentWidget(self._ppg_fixer))
         self._channel_fixer.go_tools_menu.connect(lambda: self._stack.setCurrentWidget(self._tools))
         self._channel_gain.go_tools_menu.connect(lambda: self._stack.setCurrentWidget(self._tools))
         self._revert_original.go_tools_menu.connect(lambda: self._stack.setCurrentWidget(self._tools))
+        self._ppg_fixer.go_tools_menu.connect(lambda: self._stack.setCurrentWidget(self._tools))
 
         self._offline.go_main_menu.connect(lambda: self._stack.setCurrentWidget(self._menu))
         self._settings.go_main_menu.connect(lambda: self._stack.setCurrentWidget(self._menu))

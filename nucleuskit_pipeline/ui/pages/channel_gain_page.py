@@ -27,13 +27,13 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from nucleuskit_pipeline.hermes.processor.rms_original_ops import (
+from nucleuskit_pipeline.hermes.processor.rms_ops import (
     append_operation,
     ensure_baseline_snapshot,
     original_rms_csv,
     working_rms_csv,
 )
-from nucleuskit_pipeline.hermes.processorDevelopment.channel_fixer_release.channel_fixer.rms_columns import (
+from nucleuskit_pipeline.hermes.dev.channel_fixer.channel_fixer.rms_columns import (
     CANONICAL_CHANNEL_NAMES,
     normalize_rms_dataframe,
 )

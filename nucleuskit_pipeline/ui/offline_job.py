@@ -6,7 +6,7 @@ import io
 import os
 import queue
 
-from nucleuskit_pipeline.hermes.processor.fileTools import ensure_session_rawdata_layout
+from nucleuskit_pipeline.session.layout import ensure_session_rawdata_layout
 
 
 class QueueTextWriter(io.TextIOBase):
@@ -67,3 +67,19 @@ def rms_features_preflight(folder: str) -> str | None:
 def channel_fixer_preflight(folder: str) -> str | None:
     """Return an error message if the folder cannot be used for channel fixer, else None."""
     return rms_features_preflight(folder)
+
+
+def ppg_fixer_preflight(folder: str) -> str | None:
+    """Return an error message if the folder cannot be used for the PPG fixer, else None."""
+    if not folder:
+        return "Please select a session folder."
+    folder = os.path.abspath(os.path.expanduser(folder))
+    if not os.path.isdir(folder):
+        return "Session path is not a directory."
+    resampled = os.path.join(folder, "features", "ppg", "ppg_resampled.csv")
+    if not os.path.isfile(resampled):
+        return (
+            "Missing features/ppg/ppg_resampled.csv. Run offline processing for this session "
+            "first so PPG features are produced."
+        )
+    return None

@@ -1,4 +1,4 @@
-"""Channel Fixer: repair one RMS channel in a processed session."""
+"""PPG Fixer: artifact rejection via squared z-score outlier detection."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ import traceback
 from PySide6.QtCore import QObject, QThread, QTimer, Signal, Slot
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
-    QComboBox,
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
@@ -22,60 +21,52 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from nucleuskit_pipeline.hermes.dev.channel_fixer.channel_fixer import (
-    CANONICAL_CHANNEL_NAMES,
-    fix_session,
-)
-from nucleuskit_pipeline.ui.offline_job import QueueTextWriter, channel_fixer_preflight
+from nucleuskit_pipeline.shimmer.processor.ppg_fixer import fix_ppg_session
+from nucleuskit_pipeline.ui.offline_job import QueueTextWriter, ppg_fixer_preflight
 
 
-class ChannelFixerWorker(QObject):
-    finished_ok = Signal()
+class _PpgFixerWorker(QObject):
+    finished_ok  = Signal()
     finished_err = Signal(str)
 
-    def __init__(
-        self,
-        folder: str,
-        channel_idx: int,
-        log_queue: queue.SimpleQueue[str],
-    ) -> None:
+    def __init__(self, folder: str, log_queue: queue.SimpleQueue[str]) -> None:
         super().__init__()
-        self._folder = folder
-        self._channel_idx = channel_idx
+        self._folder    = folder
         self._log_queue = log_queue
 
     @Slot()
-    def run_fix(self) -> None:
+    def run(self) -> None:
         err: str | None = None
-        writer = QueueTextWriter(self._log_queue)
+        writer          = QueueTextWriter(self._log_queue)
         old_out, old_err = sys.stdout, sys.stderr
         try:
             sys.stdout = writer
             sys.stderr = writer
-            out = fix_session(self._folder, self._channel_idx)
-            print(f"Report written: {out}")
+            fix_ppg_session(self._folder)
         except BaseException:
             err = traceback.format_exc()
             self._log_queue.put(err)
         finally:
             sys.stdout = old_out
             sys.stderr = old_err
+
         if err:
             self.finished_err.emit("Run finished with errors (see log).")
         else:
             self.finished_ok.emit()
 
 
-class ChannelFixerPage(QWidget):
-    go_tools_menu = Signal()
+class PpgFixerPage(QWidget):
+    go_tools_menu      = Signal()
     processing_changed = Signal(bool)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._log_queue: queue.SimpleQueue[str] = queue.SimpleQueue()
-        self._thread: QThread | None = None
-        self._worker: ChannelFixerWorker | None = None
+        self._thread: QThread | None           = None
+        self._worker: _PpgFixerWorker | None   = None
 
+        # ── top bar ──────────────────────────────────────────────────
         self._back = QPushButton("Back")
         self._back.setProperty("secondary", True)
         self._back.clicked.connect(self.go_tools_menu.emit)
@@ -84,31 +75,24 @@ class ChannelFixerPage(QWidget):
         top.addStretch(1)
         top.addWidget(self._back)
 
+        # ── session folder selector ───────────────────────────────────
         self._session = QLineEdit()
         self._session.setPlaceholderText("Session folder path…")
-        browse_s = QPushButton("Browse…")
-        browse_s.clicked.connect(self._browse_session)
+        browse = QPushButton("Browse…")
+        browse.clicked.connect(self._browse_session)
 
         sess_row = QHBoxLayout()
         sess_row.addWidget(self._session, 1)
-        sess_row.addWidget(browse_s)
+        sess_row.addWidget(browse)
 
-        self._channel = QComboBox()
-        for name in CANONICAL_CHANNEL_NAMES:
-            self._channel.addItem(name)
-
-        ch_row = QHBoxLayout()
-        ch_row.addWidget(self._channel, 1)
-
-        session_box = QGroupBox("Session (must contain features/emotions/rmsSignals.csv)")
+        session_box = QGroupBox(
+            "Session  (must contain features/ppg/ppg_resampled.csv)"
+        )
         sg = QVBoxLayout(session_box)
         sg.addLayout(sess_row)
 
-        channel_box = QGroupBox("Channel to fix (canonical name)")
-        cg = QVBoxLayout(channel_box)
-        cg.addLayout(ch_row)
-
-        self._run = QPushButton("Run channel fixer")
+        # ── actions ───────────────────────────────────────────────────
+        self._run = QPushButton("Run PPG Fixer")
         self._run.clicked.connect(self._run_clicked)
 
         self._progress = QProgressBar()
@@ -119,6 +103,7 @@ class ChannelFixerPage(QWidget):
         actions.addWidget(self._run)
         actions.addWidget(self._progress, 1)
 
+        # ── log ───────────────────────────────────────────────────────
         self._log = QPlainTextEdit()
         self._log.setReadOnly(True)
 
@@ -126,16 +111,18 @@ class ChannelFixerPage(QWidget):
         lg = QVBoxLayout(log_box)
         lg.addWidget(self._log)
 
+        # ── assemble ─────────────────────────────────────────────────
         layout = QVBoxLayout(self)
         layout.addLayout(top)
         layout.addWidget(session_box)
-        layout.addWidget(channel_box)
         layout.addLayout(actions)
         layout.addWidget(log_box, 1)
 
         self._poll_timer = QTimer(self)
         self._poll_timer.timeout.connect(self._drain_log_queue)
         self._poll_timer.start(120)
+
+    # ── private helpers ───────────────────────────────────────────────
 
     def _browse_session(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "Select session folder")
@@ -146,13 +133,12 @@ class ChannelFixerPage(QWidget):
         self._back.setEnabled(not running)
         self._run.setEnabled(not running)
         self._session.setEnabled(not running)
-        self._channel.setEnabled(not running)
         self._progress.setVisible(running)
         self.processing_changed.emit(running)
 
     def _run_clicked(self) -> None:
         folder = self._session.text().strip()
-        err = channel_fixer_preflight(folder)
+        err    = ppg_fixer_preflight(folder)
         if err:
             QMessageBox.warning(self, "Session", err)
             return
@@ -160,14 +146,14 @@ class ChannelFixerPage(QWidget):
             QMessageBox.information(self, "Busy", "A run is already in progress.")
             return
 
-        channel_idx = self._channel.currentIndex()
         self._set_processing(True)
-        self._insert_log(f"\n--- Starting channel fixer: {folder!r} channel index {channel_idx} ---\n")
+        self._insert_log(f"\n--- Starting PPG Fixer: {folder!r} ---\n")
 
         thread = QThread()
-        worker = ChannelFixerWorker(folder, channel_idx, self._log_queue)
+        worker = _PpgFixerWorker(folder, self._log_queue)
         worker.moveToThread(thread)
-        thread.started.connect(worker.run_fix)
+
+        thread.started.connect(worker.run)
         worker.finished_ok.connect(self._on_finished_ok)
         worker.finished_err.connect(self._on_finished_err)
         worker.finished_ok.connect(thread.quit)
@@ -186,11 +172,17 @@ class ChannelFixerPage(QWidget):
 
     def _on_finished_ok(self) -> None:
         self._set_processing(False)
-        QMessageBox.information(self, "Channel fixer", "Run finished.")
+        QMessageBox.information(
+            self,
+            "PPG Fixer",
+            "Done.\n\n"
+            "Artifacts removed, features/ppg/ppg_rejected.png saved, and "
+            "results/HeartDynamics.csv recomputed.",
+        )
 
     def _on_finished_err(self, msg: str) -> None:
         self._set_processing(False)
-        QMessageBox.critical(self, "Channel fixer", msg)
+        QMessageBox.critical(self, "PPG Fixer", msg)
 
     def _insert_log(self, text: str) -> None:
         self._log.moveCursor(QTextCursor.End)

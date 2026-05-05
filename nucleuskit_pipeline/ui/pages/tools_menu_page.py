@@ -11,6 +11,7 @@ class ToolsMenuPage(QWidget):
     open_channel_fixer = Signal()
     open_channel_gain = Signal()
     open_revert_original = Signal()
+    open_ppg_fixer = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -35,6 +36,7 @@ class ToolsMenuPage(QWidget):
         col.addWidget(big_button("Channel Fixer", self.open_channel_fixer.emit))
         col.addWidget(big_button("Channel gain adjustment", self.open_channel_gain.emit))
         col.addWidget(big_button("Revert to original", self.open_revert_original.emit))
+        col.addWidget(big_button("PPG Fixer", self.open_ppg_fixer.emit))
 
         outer = QVBoxLayout(self)
         outer.addLayout(top)

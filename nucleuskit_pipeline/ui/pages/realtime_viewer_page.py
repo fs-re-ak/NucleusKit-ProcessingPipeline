@@ -29,7 +29,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from nucleuskit_pipeline.hermes.realtime.hermes_ble_proxy import HermesBleProxy
+from nucleuskit_pipeline.hermes.realtime.proxy import HermesBleProxy
 from nucleuskit_pipeline.shimmer import ShimmerSerialProxy
 from nucleuskit_pipeline.ui.realtime_eeg_plot import RealtimeEegPlot
 from nucleuskit_pipeline.ui.realtime_hermes_motion_plot import RealtimeHermesMotionPlot
@@ -70,7 +70,7 @@ def _bleak_scan_hermes_devices(timeout_s: float = 8.0) -> list[tuple[str, str]]:
 
     from bleak import BleakScanner
 
-    from nucleuskit_pipeline.hermes.realtime.hermes_ble_proxy import HERMES_NAME_SUBSTRING
+    from nucleuskit_pipeline.hermes.realtime.proxy import HERMES_NAME_SUBSTRING
 
     async def discover() -> list[tuple[str, str]]:
         devices = await BleakScanner.discover(timeout=timeout_s)

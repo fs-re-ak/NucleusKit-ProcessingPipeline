@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from nucleuskit_pipeline.hermes.processor.rms_original_ops import (
+from nucleuskit_pipeline.hermes.processor.rms_ops import (
     operations_log_path,
     original_rms_csv,
     revert_working_to_original,

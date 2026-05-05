@@ -14,7 +14,7 @@ from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QVBoxLayout, QWidget
 from scipy.signal import butter, lfilter, lfilter_zi
 
-from nucleuskit_pipeline.hermes.HermesConstants import HermesConstants
+from nucleuskit_pipeline.hermes.constants import HermesConstants
 
 pg.setConfigOptions(foreground="k")
 

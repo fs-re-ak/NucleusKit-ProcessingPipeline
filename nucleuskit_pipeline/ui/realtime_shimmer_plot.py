@@ -10,7 +10,7 @@ import numpy as np
 import pyqtgraph as pg
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
-from nucleuskit_pipeline.hermes.HermesConstants import ShimmerConstants
+from nucleuskit_pipeline.shimmer.constants import ShimmerConstants
 
 pg.setConfigOptions(foreground="k")
 

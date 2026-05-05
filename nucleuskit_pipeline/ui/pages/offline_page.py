@@ -9,6 +9,7 @@ import traceback
 from PySide6.QtCore import QObject, QThread, QTimer, Signal, Slot
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
+    QCheckBox,
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
@@ -28,11 +29,18 @@ class PipelineWorker(QObject):
     finished_ok = Signal()
     finished_err = Signal(str)
 
-    def __init__(self, folder: str, cfg: str | None, log_queue: queue.SimpleQueue[str]) -> None:
+    def __init__(
+        self,
+        folder: str,
+        cfg: str | None,
+        log_queue: queue.SimpleQueue[str],
+        skip_video_rotation: bool = False,
+    ) -> None:
         super().__init__()
         self._folder = folder
         self._cfg = cfg
         self._log_queue = log_queue
+        self._skip_video_rotation = skip_video_rotation
 
     @Slot()
     def run_pipeline(self) -> None:
@@ -48,7 +56,9 @@ class PipelineWorker(QObject):
 
             configure_logging()
             job = session_job_from_folder(self._folder, pov_config_json=self._cfg)
-            pipe = NucleusKitProcessingPipeline(None)
+            pipe = NucleusKitProcessingPipeline(
+                None, skip_video_rotation=self._skip_video_rotation
+            )
             pipe.processSession(job)
         except BaseException:
             err = traceback.format_exc()
@@ -93,6 +103,12 @@ class OfflinePage(QWidget):
         sg = QVBoxLayout(session_box)
         sg.addLayout(sess_row)
 
+        self._skip_video_rotation = QCheckBox("Skip video rotation")
+        self._skip_video_rotation.setToolTip(
+            "When checked, the 180° rotation of rawData/video.mp4 is skipped entirely,\n"
+            "even if it has not been applied yet."
+        )
+
         self._run = QPushButton("Run pipeline")
         self._run.clicked.connect(self._run_clicked)
 
@@ -102,6 +118,8 @@ class OfflinePage(QWidget):
 
         actions = QHBoxLayout()
         actions.addWidget(self._run)
+        actions.addWidget(self._skip_video_rotation)
+        actions.addStretch(1)
         actions.addWidget(self._progress, 1)
 
         self._log = QPlainTextEdit()
@@ -130,6 +148,7 @@ class OfflinePage(QWidget):
         self._back.setEnabled(not running)
         self._run.setEnabled(not running)
         self._session.setEnabled(not running)
+        self._skip_video_rotation.setEnabled(not running)
         self._progress.setVisible(running)
         self.processing_changed.emit(running)
 
@@ -144,11 +163,14 @@ class OfflinePage(QWidget):
             return
 
         cfg = None
+        skip_rot = self._skip_video_rotation.isChecked()
         self._set_processing(True)
         self._insert_log(f"\n--- Starting run: {folder!r} ---\n")
+        if skip_rot:
+            self._insert_log("  (video rotation skipped by user request)\n")
 
         thread = QThread()
-        worker = PipelineWorker(folder, cfg, self._log_queue)
+        worker = PipelineWorker(folder, cfg, self._log_queue, skip_video_rotation=skip_rot)
         worker.moveToThread(thread)
         thread.started.connect(worker.run_pipeline)
         worker.finished_ok.connect(self._on_finished_ok)

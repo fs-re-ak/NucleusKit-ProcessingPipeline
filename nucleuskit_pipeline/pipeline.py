@@ -10,13 +10,12 @@ import traceback
 from abc import ABC, abstractmethod
 
 from nucleuskit_pipeline.config import resolve_pov_settings
-from nucleuskit_pipeline.hermes.processor.cognitionProcessor import computeCognitiveIndexes
-from nucleuskit_pipeline.hermes.processor.emotionsProcessor import computeEmotions
-from nucleuskit_pipeline.hermes.processor.eventsTools import eventProcessor
-from nucleuskit_pipeline.hermes.processor.fileTools import ensure_session_rawdata_layout, prepareDirectory
-from nucleuskit_pipeline.hermes.processor.HermesPOVConversion import convertPOVMovieClip
-from nucleuskit_pipeline.hermes.processor.metaInfoTools import extractMetaInfo
-from nucleuskit_pipeline.hermes.processor.session_video_rotation import ensure_session_video_rotated_180
+from nucleuskit_pipeline.hermes.processor.cognition_processor import computeCognitiveIndexes
+from nucleuskit_pipeline.hermes.processor.emotions_processor import computeEmotions
+from nucleuskit_pipeline.events.processor import eventProcessor
+from nucleuskit_pipeline.camera import convertPOVMovieClip, ensure_session_video_rotated_180
+from nucleuskit_pipeline.session.layout import ensure_session_rawdata_layout, prepareDirectory
+from nucleuskit_pipeline.session.meta.info import extractMetaInfo
 from nucleuskit_pipeline.events import seedPlaybackAnnotations
 from nucleuskit_pipeline.logging_utils import printError, printInfo, printWarning
 from nucleuskit_pipeline.position import processGPS, processUWB
@@ -49,10 +48,11 @@ class NucleusKitProcessingPipeline(BasePipeline):
     Offline analytics pipeline for processing session data from a local folder.
     """
 
-    def __init__(self, configuration=None):
+    def __init__(self, configuration=None, *, skip_video_rotation: bool = False):
         super().__init__(configuration)
         self.plot_data = False
         self.processingSteps = []
+        self._skip_video_rotation = skip_video_rotation
 
         if configuration is None:
             self.configureAsDefault()
@@ -101,8 +101,11 @@ class NucleusKitProcessingPipeline(BasePipeline):
 
         printInfo("- Adding preparation of directory")
         self.processingSteps.append(prepareDirectory)
-        printInfo("- Adding one-time session video 180° rotation (rawData/video.mp4)")
-        self.processingSteps.append(ensure_session_video_rotated_180)
+        if self._skip_video_rotation:
+            printInfo("- Skipping session video 180° rotation (disabled by caller)")
+        else:
+            printInfo("- Adding one-time session video 180° rotation (rawData/video.mp4)")
+            self.processingSteps.append(ensure_session_video_rotated_180)
         printInfo("- Adding extraction of meta information")
         self.processingSteps.append(extractMetaInfo)
 

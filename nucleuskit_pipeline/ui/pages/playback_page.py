@@ -39,7 +39,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from nucleuskit_pipeline.hermes.processor.emotionsProcessor import EMOTION_COLUMNS
+from nucleuskit_pipeline.hermes.processor.emotions_processor import EMOTION_COLUMNS
 
 PLAYBACK_EMOTION_COLORS: dict[str, str] = {
     "Neutral": "#a0a0a0",
@@ -851,7 +851,10 @@ class PlaybackPage(QWidget):
 
         self._time_label = QLabel("0:00 / 0:00")
         self._time_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self._time_label.setStyleSheet("font-variant-numeric: tabular-nums; min-width: 90px;")
+        # QSS does not support font-variant-numeric; monospace gives stable time digits without Qt warnings.
+        self._time_label.setStyleSheet(
+            'font-family: Consolas, "DejaVu Sans Mono", "Courier New", monospace; min-width: 90px;'
+        )
 
         self._playback_bottom = QWidget()
         bottom_layout = QVBoxLayout(self._playback_bottom)
