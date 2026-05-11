@@ -30,9 +30,24 @@ from nucleuskit_pipeline.shimmer.processor.resampler import resample_to_grid, no
 # -------------------------------------------------------------------
 SAMPLING_RATE  = 51.2    # native Shimmer PPG sample rate (Hz)
 
-# Artifact-rejection constants (squared z-score method)
-Z_THRESHOLD     = 2.5    # |z| beyond which a sample is flagged as an outlier
-REJECT_MARGIN_S = 5.0    # seconds to reject around each outlier centre
+# Artifact-rejection constants (robust MAD-based z-score method).
+#
+# We use the median and median-absolute-deviation (MAD) rather than
+# mean/std because the squared PPG is right-skewed — standard z-scores
+# routinely flag normal systolic peaks in a clean recording, producing
+# large false-positive reject regions.  The MAD estimator is largely
+# unaffected by a small number of extreme glitch samples, so a genuine
+# glitch (10–100× normal amplitude) yields a MAD-z score of 50+ and is
+# reliably caught, while normal beats stay at MAD-z ≈ 2–3.
+#
+# REJECT_MARGIN_S: seconds to blank around each detected glitch centre.
+#
+# REJECT_MAX_PCT: if rejection would exceed this fraction of the total
+#   signal, the glitch is almost certainly a false alarm (or the whole
+#   recording is bad).  In that case rejection is skipped entirely.
+Z_THRESHOLD     = 4.0    # MAD-based |z| threshold; genuine glitches >> 4
+REJECT_MARGIN_S = 5.0    # seconds to blank around each glitch centre
+REJECT_MAX_PCT  = 15.0   # abort rejection if it would exceed this % of signal
 
 # Elgendi peak detection requires ≥100 Hz for reliable operation.
 # Upsample to this rate before processing so the algorithm has adequate resolution.
@@ -42,6 +57,12 @@ _UPSAMPLE_RATE = 256.0
 # peaks and must be excluded before computing RMSSD.
 _IBI_MIN_MS = 300.0    # ~200 bpm
 _IBI_MAX_MS = 2000.0   # ~30 bpm
+
+# Adaptive missing-beat filler constants (used by _fill_missing_beats).
+MISSING_BEAT_HISTORY     = 30     # beats used to estimate the rolling median IBI
+MISSING_BEAT_RATIO       = 1.5    # IBI > ratio * recent median => missed beat(s)
+MISSING_BEAT_MAX_FILL_S  = 20.0   # gaps longer than this are not filled
+MISSING_BEAT_MIN_HISTORY = 10     # require at least this many IBIs before adapting
 
 # Shimmer CSV: column 0 = timestamp (ms), column 5 = PPG
 _SHIMMER_TIMESTAMP_COL = 0
@@ -92,13 +113,12 @@ def _load_shimmer_ppg_signal(rec_path):
 
 def _filter_physiological_ibi(peak_indices, fs):
     """
-    Sanitize peaks so all remaining IBIs are physiologically plausible.
+    Drop spurious peaks whose IBI is physiologically too short.
 
-    Two artifact types are handled differently:
-    - Too short (IBI < _IBI_MIN_MS): spurious detection — discard the
-      second peak of the pair.
-    - Too long  (IBI > _IBI_MAX_MS): missed beat — insert a synthetic
-      peak at the midpoint so RMSSD is not dominated by a single large gap.
+    When two consecutive peaks are separated by less than _IBI_MIN_MS
+    (~200 bpm), the second one is a duplicate detection and is removed.
+    Long-IBI handling (missed beats) is delegated to ``_fill_missing_beats``,
+    which uses adaptive thresholds and gap-mask awareness.
     """
     peaks = list(np.asarray(peak_indices, dtype=float))
     i = 0
@@ -106,13 +126,130 @@ def _filter_physiological_ibi(peak_indices, fs):
         ibi_ms = (peaks[i + 1] - peaks[i]) / fs * 1000.0
         if ibi_ms < _IBI_MIN_MS:
             del peaks[i + 1]
-        elif ibi_ms > _IBI_MAX_MS:
-            synthetic = (peaks[i] + peaks[i + 1]) / 2.0
-            peaks.insert(i + 1, synthetic)
-            i += 1  # advance past the now-valid first half-gap
         else:
             i += 1
     return np.round(peaks).astype(int)
+
+
+# -------------------------------------------------------------------
+# Adaptive missing-beat filler
+# -------------------------------------------------------------------
+
+def _fill_missing_beats(
+    peak_idx,
+    fs,
+    gap_mask=None,
+    history=MISSING_BEAT_HISTORY,
+    min_history=MISSING_BEAT_MIN_HISTORY,
+    ratio=MISSING_BEAT_RATIO,
+    max_fill_s=MISSING_BEAT_MAX_FILL_S,
+):
+    """Fill short stretches of missed beats with synthetic peaks.
+
+    Walks the peak series once. For each pair (p[i], p[i+1]), the IBI is
+    compared to the rolling median of the previous *history* accepted IBIs.
+    If the IBI is more than *ratio* times the recent median, the gap is
+    treated as one or more missed beats and filled with evenly-spaced
+    synthetic peaks. Gaps longer than *max_fill_s* or that overlap the
+    *gap_mask* (hardware gaps + glitch-rejected regions) are left untouched.
+
+    Parameters
+    ----------
+    peak_idx : array-like
+        Peak sample indices in the *fs* domain.
+    fs : float
+        Sample rate of the index domain (Hz).
+    gap_mask : np.ndarray[bool] or None
+        True at every sample that belongs to a hardware gap or
+        artifact-rejected region. A long IBI that straddles any such
+        sample is left unfilled because the absence of beats there
+        reflects legitimate missing signal.
+    history : int
+        Number of recent IBIs used to compute the rolling median.
+    min_history : int
+        Minimum accepted IBIs required before adaptive detection kicks
+        in. Before this, the global median of all observed IBIs is used
+        as a warm-up estimate so the early signal is still cleaned.
+    ratio : float
+        IBI / recent_median threshold above which one or more beats are
+        considered missing.
+    max_fill_s : float
+        Gaps longer than this duration are not filled (treated as long
+        dropouts rather than missed beats).
+
+    Returns
+    -------
+    peak_idx_filled : np.ndarray[int]
+        Peak indices including the inserted synthetic peaks, sorted.
+    synthetic_mask : np.ndarray[bool]
+        Same length as *peak_idx_filled*; True at every inserted
+        synthetic peak, False at every real peak.
+    n_inserted : int
+        Total number of synthetic peaks inserted.
+    """
+    peaks = np.asarray(peak_idx, dtype=float).tolist()
+    if len(peaks) < 2:
+        return (
+            np.asarray(peaks, dtype=int),
+            np.zeros(len(peaks), dtype=bool),
+            0,
+        )
+
+    is_synth = [False] * len(peaks)
+    ibi_history = []  # in samples; updated as we walk through accepted IBIs
+
+    global_median_ibi = float(np.median(np.diff(peaks))) if len(peaks) > 1 else 0.0
+    max_fill_samples = max_fill_s * fs
+
+    gap_mask_arr = None
+    n_gap = 0
+    if gap_mask is not None and np.any(gap_mask):
+        gap_mask_arr = np.asarray(gap_mask, dtype=bool)
+        n_gap = len(gap_mask_arr)
+
+    n_inserted = 0
+    i = 0
+    while i < len(peaks) - 1:
+        ibi = peaks[i + 1] - peaks[i]
+
+        if len(ibi_history) >= min_history:
+            recent_median = float(np.median(ibi_history[-history:]))
+        else:
+            recent_median = global_median_ibi
+
+        if recent_median <= 0:
+            ibi_history.append(ibi)
+            i += 1
+            continue
+
+        is_long_gap = ibi > ratio * recent_median
+        is_within_cap = ibi <= max_fill_samples
+
+        overlaps_gap = False
+        if is_long_gap and is_within_cap and gap_mask_arr is not None:
+            lo = int(max(0, np.floor(peaks[i])))
+            hi = int(min(n_gap, np.ceil(peaks[i + 1]) + 1))
+            if lo < hi and bool(gap_mask_arr[lo:hi].any()):
+                overlaps_gap = True
+
+        if is_long_gap and is_within_cap and not overlaps_gap:
+            n_missing = max(1, int(round(ibi / recent_median)) - 1)
+            step = ibi / (n_missing + 1)
+            for k in range(1, n_missing + 1):
+                synth = peaks[i] + k * step
+                peaks.insert(i + k, synth)
+                is_synth.insert(i + k, True)
+            n_inserted += n_missing
+            for k in range(n_missing + 1):
+                ibi_history.append(step)
+            i += n_missing + 1
+        else:
+            ibi_history.append(ibi)
+            i += 1
+
+    peaks_arr = np.round(np.asarray(peaks, dtype=float)).astype(int)
+    synth_arr = np.asarray(is_synth, dtype=bool)
+    return peaks_arr, synth_arr, n_inserted
 
 
 # -------------------------------------------------------------------
@@ -274,12 +411,13 @@ def _sliding_hrv_dataframe(
 # Diagnostic figure
 # -------------------------------------------------------------------
 
-def _save_ppg_figure(ppg_clean_256, peak_idx_256, t_upsampled, out_dir):
+def _save_ppg_figure(ppg_clean_256, peak_idx_256, t_upsampled, out_dir, synth_mask=None):
     """
     Save ``ppg_overview.png`` to *out_dir*.
 
-    Plots the NeuroKit2-cleaned PPG waveform (256 Hz) in black with a
-    red vertical line at every detected heartbeat peak. NaN values
+    Plots the NeuroKit2-cleaned PPG waveform (256 Hz) in black with red
+    vertical lines at real heartbeat peaks and dashed orange lines at
+    synthetic fills inserted by ``_fill_missing_beats``. NaN values
     (large hardware gaps) appear as natural breaks in the trace.
 
     Parameters
@@ -288,6 +426,9 @@ def _save_ppg_figure(ppg_clean_256, peak_idx_256, t_upsampled, out_dir):
     peak_idx_256  : np.ndarray — heartbeat peak indices in the 256 Hz domain
     t_upsampled   : np.ndarray — time axis in seconds for the 256 Hz signal
     out_dir       : str        — directory where the figure is saved
+    synth_mask    : np.ndarray[bool] or None
+                    Same length as *peak_idx_256*; True at synthetic fills.
+                    When None, all peaks are treated as real.
     """
     os.makedirs(out_dir, exist_ok=True)
 
@@ -296,14 +437,31 @@ def _save_ppg_figure(ppg_clean_256, peak_idx_256, t_upsampled, out_dir):
     ax.plot(t_upsampled, ppg_clean_256, color="black", linewidth=0.8,
             label="PPG (cleaned)")
 
-    peak_times = t_upsampled[peak_idx_256]
-    if len(peak_times):
+    peak_idx_256 = np.asarray(peak_idx_256)
+    if synth_mask is None:
+        synth_mask = np.zeros(len(peak_idx_256), dtype=bool)
+    else:
+        synth_mask = np.asarray(synth_mask, dtype=bool)
+
+    real_idx  = peak_idx_256[~synth_mask]
+    synth_idx = peak_idx_256[synth_mask]
+
+    if len(peak_idx_256):
         ppg_finite = ppg_clean_256[np.isfinite(ppg_clean_256)]
         ymin = float(ppg_finite.min()) if len(ppg_finite) else 0.0
         ymax = float(ppg_finite.max()) if len(ppg_finite) else 1.0
-        ax.vlines(peak_times, ymin=ymin, ymax=ymax,
-                  color="red", linewidth=0.6, alpha=0.7,
-                  label=f"Heartbeats (n={len(peak_times)})")
+
+        if len(real_idx):
+            real_times = t_upsampled[real_idx]
+            ax.vlines(real_times, ymin=ymin, ymax=ymax,
+                      color="red", linewidth=0.6, alpha=0.7,
+                      label=f"Heartbeats (n={len(real_times)})")
+        if len(synth_idx):
+            synth_times = t_upsampled[synth_idx]
+            ax.vlines(synth_times, ymin=ymin, ymax=ymax,
+                      color="orange", linewidth=0.8, alpha=0.8,
+                      linestyles="dashed",
+                      label=f"Synthetic fills (n={len(synth_times)})")
 
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("Amplitude (a.u.)")
@@ -365,8 +523,8 @@ def _save_ppg_rejected_figure(
     ax.set_xlabel("Time (s)")
     ax.set_ylabel("PPG (raw a.u.)")
     ax.set_title(
-        f"PPG — rejection map  (squared z-score > {Z_THRESHOLD} σ, "
-        f"±{REJECT_MARGIN_S:.0f} s margin)"
+        f"PPG — rejection map  (MAD-z > {Z_THRESHOLD}, "
+        f"±{REJECT_MARGIN_S:.0f} s margin, cap {REJECT_MAX_PCT:.0f} %)"
     )
     ax.legend(loc="upper right", fontsize=8)
     fig.tight_layout()
@@ -382,7 +540,7 @@ def apply_ppg_artifact_rejection(
     timestamps: np.ndarray,
     out_dir: str,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Apply squared z-score artifact rejection to *ppg_raw*.
+    """Apply robust MAD-based artifact rejection to *ppg_raw*.
 
     Parameters
     ----------
@@ -401,22 +559,23 @@ def apply_ppg_artifact_rejection(
     reject_mask : np.ndarray[bool]
         True at every sample that was rejected.
     """
-    ppg_sq  = ppg_raw ** 2
-    sq_mean = np.nanmean(ppg_sq)
-    sq_std  = np.nanstd(ppg_sq)
+    ppg_sq     = ppg_raw ** 2
+    sq_median  = float(np.nanmedian(ppg_sq))
+    sq_mad     = float(np.nanmedian(np.abs(ppg_sq - sq_median)))
+    sq_mad_std = sq_mad * 1.4826   # normalise MAD to be consistent with std
 
-    if sq_std == 0:
+    if sq_mad_std == 0:
         printWarning(
-            "[heartProcessor] PPG signal has zero variance after squaring — "
+            "[heartProcessor] PPG signal has zero MAD after squaring — "
             "skipping artifact rejection."
         )
         return ppg_raw.copy(), np.zeros(len(ppg_raw), dtype=bool)
 
-    z_scores     = (ppg_sq - sq_mean) / sq_std
-    outlier_mask = np.abs(z_scores) > Z_THRESHOLD
+    z_scores     = np.abs(ppg_sq - sq_median) / sq_mad_std
+    outlier_mask = z_scores > Z_THRESHOLD
 
     n_outliers = int(outlier_mask.sum())
-    printInfo(f"[heartProcessor] PPG outlier samples (|z| > {Z_THRESHOLD} σ): {n_outliers}")
+    printInfo(f"[heartProcessor] PPG outlier samples (MAD-z > {Z_THRESHOLD}): {n_outliers}")
 
     n_margin    = int(round(REJECT_MARGIN_S * SAMPLING_RATE))
     struct      = np.ones(2 * n_margin + 1, dtype=bool)
@@ -428,6 +587,17 @@ def apply_ppg_artifact_rejection(
         f"[heartProcessor] PPG samples rejected after margin expansion: "
         f"{n_rejected} / {len(ppg_raw)}  ({pct:.1f} %)"
     )
+
+    # Safety cap: if rejection would consume more than REJECT_MAX_PCT of
+    # the signal the detector has likely found no real glitch.  Return the
+    # signal untouched so that downstream processing can still run.
+    if pct > REJECT_MAX_PCT:
+        printWarning(
+            f"[heartProcessor] Artifact rejection would blank {pct:.1f} % of "
+            f"the signal (cap = {REJECT_MAX_PCT:.0f} %) — skipping rejection "
+            "to preserve valid signal."
+        )
+        return ppg_raw.copy(), np.zeros(len(ppg_raw), dtype=bool)
 
     _save_ppg_rejected_figure(ppg_raw, reject_mask, timestamps, out_dir)
 
@@ -452,6 +622,7 @@ def process_ppg_to_dataframe(ppg_raw, fs=SAMPLING_RATE):
     before HRV computation as a secondary guard.
     """
     _, _, peak_idx_orig, _, _ = _detect_ppg_peaks(ppg_raw, fs)
+    peak_idx_orig, _, _ = _fill_missing_beats(peak_idx_orig, fs=fs)
     return _sliding_hrv_dataframe(peak_idx_orig, fs=fs)
 
 
@@ -525,15 +696,30 @@ def computeHeartDynamics(recPath, show=False):
     combined_gap_mask = gap_mask | reject_mask
 
     try:
-        ppg_clean_256, peak_idx_256, peak_idx_orig, t_upsampled, _ = (
+        ppg_clean_256, peak_idx_256, peak_idx_orig, t_upsampled, gap_mask_256 = (
             _detect_ppg_peaks(ppg_raw, gap_mask=combined_gap_mask)
         )
     except Exception as e:
         printError(f"[heartProcessor] PPG peak detection failed: {e}")
         return
 
+    peak_idx_orig, _, n_inserted_orig = _fill_missing_beats(
+        peak_idx_orig, fs=SAMPLING_RATE, gap_mask=combined_gap_mask,
+    )
+    peak_idx_256, synth_mask_256, _ = _fill_missing_beats(
+        peak_idx_256, fs=_UPSAMPLE_RATE, gap_mask=gap_mask_256,
+    )
+    printInfo(
+        f"[heartProcessor] Inserted {n_inserted_orig} synthetic peaks to fill "
+        f"missed beats (adaptive threshold = {MISSING_BEAT_RATIO}x recent "
+        f"median IBI, max gap = {MISSING_BEAT_MAX_FILL_S:.0f} s)"
+    )
+
     # Step 3 — diagnostic figure
-    _save_ppg_figure(ppg_clean_256, peak_idx_256, t_upsampled, ppg_features_dir)
+    _save_ppg_figure(
+        ppg_clean_256, peak_idx_256, t_upsampled, ppg_features_dir,
+        synth_mask=synth_mask_256,
+    )
 
     try:
         hrv_df = _sliding_hrv_dataframe(peak_idx_orig)

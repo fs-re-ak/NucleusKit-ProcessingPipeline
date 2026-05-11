@@ -42,7 +42,16 @@ _SCR_MIN_DISTANCE_S = 1.0    # minimum seconds between consecutive SCR events
 
 # Shimmer CSV: column 0 = timestamp (ms), column 4 = EDA / GSR
 _SHIMMER_TIMESTAMP_COL = 0
-_SHIMMER_EDA_COL       = 4
+
+# Candidate files and the column index that holds the EDA/GSR value.
+# Checked in order; the first file that exists and has enough columns wins.
+#   shimmer.csv / rawShimmer_0.csv  — full multi-channel Shimmer export (col 4)
+#   gsr.tmp                         — two-column legacy dump (col 1): timestamps, EDA
+_EDA_CANDIDATES = [
+    ("shimmer.csv",      4),
+    ("rawShimmer_0.csv", 4),
+    ("gsr.tmp",          1),
+]
 
 
 # -------------------------------------------------------------------
@@ -51,35 +60,44 @@ _SHIMMER_EDA_COL       = 4
 
 def _load_shimmer_eda_signal(rec_path):
     """
-    Load timestamp + EDA from ``rawData/shimmer.csv`` or legacy ``rawShimmer_0.csv``.
+    Load timestamp + EDA from ``rawData/shimmer.csv``, legacy
+    ``rawShimmer_0.csv``, or minimal ``gsr.tmp``.
 
-    Column 4 contains raw GSR resistance in kΩ as recorded by the Shimmer
-    hardware. Conversion to conductance (µS) is performed later, after
-    resampling onto the regular grid.
+    ``shimmer.csv`` / ``rawShimmer_0.csv`` are full multi-channel Shimmer
+    exports (no header); column 4 contains raw GSR resistance in kΩ.
+    ``gsr.tmp`` is a headerless two-column file (timestamps, EDA) where
+    column 1 holds the EDA/GSR value directly.
+
+    Conversion to conductance (µS) is performed later, after resampling
+    onto the regular grid.
 
     Returns a two-column DataFrame (0 = time in seconds from start, 1 = EDA
     in kΩ), or None if no usable file is present.
     """
     raw_dir = os.path.join(rec_path, "rawData")
-    for name in ("shimmer.csv", "rawShimmer_0.csv"):
+    for name, eda_col in _EDA_CANDIDATES:
         path = os.path.join(raw_dir, name)
         if not os.path.isfile(path):
             continue
-        df = pd.read_csv(path, header=None)
-        if df.shape[1] <= _SHIMMER_EDA_COL:
+        try:
+            df = pd.read_csv(path, header=None)
+        except Exception:
+            continue
+        if df.shape[1] <= eda_col:
             printWarning(
-                f"[edaProcessor] {path} has fewer than {_SHIMMER_EDA_COL + 1} columns; "
-                "cannot read EDA (column 4)."
+                f"[edaProcessor] {path} has fewer than {eda_col + 1} columns; "
+                f"cannot read EDA (column {eda_col})."
             )
             continue
-        sig = df[[_SHIMMER_TIMESTAMP_COL, _SHIMMER_EDA_COL]].copy()
+        sig = df[[_SHIMMER_TIMESTAMP_COL, eda_col]].copy()
         sig.columns = [0, 1]
         sig[0] = normalise_timestamps_to_seconds(sig[0].values)
         return sig
 
     printWarning(
         f"[edaProcessor] No Shimmer EDA file in {raw_dir} "
-        "(expected shimmer.csv or rawShimmer_0.csv). Shimmer was likely not used for this recording."
+        "(expected shimmer.csv, rawShimmer_0.csv, or gsr.tmp). "
+        "Shimmer was likely not used for this recording."
     )
     return None
 

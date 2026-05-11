@@ -705,6 +705,7 @@ class MetricsPlotWidget(QWidget):
         emotion_idx = 0
         for col in plot_cols:
             y = df[col].to_numpy(dtype=np.float64)
+            y = np.where(np.isfinite(y), y, 0.0)
             hex_color = PLAYBACK_EMOTION_COLORS.get(col)
             if hex_color is not None:
                 qcol = QColor(hex_color)

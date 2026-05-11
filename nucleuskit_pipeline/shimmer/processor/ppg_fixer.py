@@ -33,8 +33,12 @@ from nucleuskit_pipeline.logging_utils import printError, printInfo, printWarnin
 
 from nucleuskit_pipeline.shimmer.processor.heart import (
     SAMPLING_RATE,
+    _UPSAMPLE_RATE,
+    MISSING_BEAT_MAX_FILL_S,
+    MISSING_BEAT_RATIO,
     apply_ppg_artifact_rejection,
     _detect_ppg_peaks,
+    _fill_missing_beats,
     _save_ppg_figure,
     _sliding_hrv_dataframe,
 )
@@ -90,14 +94,27 @@ def fix_ppg_session(rec_path: str) -> None:
     gap_mask = np.isnan(ppg_fixed)
 
     try:
-        ppg_clean_256, peak_idx_256, peak_idx_orig, t_upsampled, _ = _detect_ppg_peaks(
+        ppg_clean_256, peak_idx_256, peak_idx_orig, t_upsampled, gap_mask_256 = _detect_ppg_peaks(
             ppg_fixed, gap_mask=gap_mask
         )
     except Exception as exc:
         printError(f"[ppgFixer] Peak detection failed: {exc}")
         return
 
-    _save_ppg_figure(ppg_clean_256, peak_idx_256, t_upsampled, ppg_features_dir)
+    peak_idx_orig, _, n_inserted_orig = _fill_missing_beats(
+        peak_idx_orig, fs=SAMPLING_RATE, gap_mask=gap_mask,
+    )
+    peak_idx_256, synth_mask_256, _ = _fill_missing_beats(
+        peak_idx_256, fs=_UPSAMPLE_RATE, gap_mask=gap_mask_256,
+    )
+    printInfo(
+        f"[ppgFixer] Inserted {n_inserted_orig} synthetic peaks to fill "
+        f"missed beats (adaptive threshold = {MISSING_BEAT_RATIO}x recent "
+        f"median IBI, max gap = {MISSING_BEAT_MAX_FILL_S:.0f} s)"
+    )
+
+    _save_ppg_figure(ppg_clean_256, peak_idx_256, t_upsampled, ppg_features_dir,
+                     synth_mask=synth_mask_256)
 
     try:
         hrv_df = _sliding_hrv_dataframe(peak_idx_orig)
