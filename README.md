@@ -1,6 +1,25 @@
 # Nucleus-Kit Processing Pipeline
 
-Desktop application for **Nucleus-Kit** sessions: **offline** analytics (ingest session folders on disk, run the bundled processing steps, write outputs under each session’s `features/` and `results/`), plus real-time streaming, playback review, and MQTT device control. The **offline** pipeline can be run from the GUI or from the command line.
+Desktop application for **Nucleus-Kit** sessions: **offline** analytics (ingest session folders on disk, run the bundled processing steps, write outputs under each session's `features/` and `results/`), plus real-time streaming, playback review, and MQTT device control. The **offline** pipeline can be run from the GUI or from the command line.
+
+## Table of contents
+
+- [Hardware mapping](#hardware-mapping)
+- [Main menu (graphical mode)](#main-menu-graphical-mode)
+  - [Tools submenu](#tools-submenu)
+- [Requirements](#requirements)
+- [Install](#install)
+- [Run](#run)
+- [Session layout](#session-layout)
+  - [Top-level folders](#top-level-folders)
+  - [rawData/ — typical inputs](#rawdata--typical-inputs)
+  - [features/ — notable outputs](#features--notable-outputs)
+  - [results/ — primary pipeline tables](#results--primary-pipeline-tables)
+- [Optional POV / ffmpeg configuration](#optional-pov--ffmpeg-configuration)
+- [Technical documentation](#technical-documentation)
+- [Trust and bundled models](#trust-and-bundled-models)
+- [Tests](#tests)
+- [License](#license)
 
 ## Hardware mapping
 
@@ -29,11 +48,12 @@ After `python -m nucleuskit_pipeline`, the home screen offers:
 | **Channel Fixer** | Repair a single bad RMS channel in an already-processed session using the bundled channel-fix model. |
 | **Channel gain adjustment** | Adjust per-channel RMS gain and zero offset against a reference distribution; updates working emotion RMS features. |
 | **Revert to original** | Restore working RMS features from the frozen baseline under `features/emotions/original/`. |
+| **PPG Fixer** | Re-run PPG artifact rejection and HRV computation on an already-processed session (useful when tuning rejection thresholds without reprocessing the full pipeline). |
 
 ## Requirements
 
 - Python 3.10+
-- Dependencies are listed in [`pyproject.toml`](pyproject.toml) (also mirrored in [`requirements.txt`](requirements.txt)).
+- Core dependencies are declared in [`pyproject.toml`](pyproject.toml). [`requirements.txt`](requirements.txt) is a flat install file that covers all dependencies including the optional GUI extras in one go.
 
 ## Install
 
@@ -120,6 +140,8 @@ Exact filenames vary by firmware and recording path; common patterns include:
 ### `features/` — notable outputs
 
 - **`features/metainfo.json`** — session duration and stream presence flags from meta extraction
+- **`features/ppg/`** — PPG intermediate files: `ppg_resampled.csv` (artifact-cleaned signal), `ppg_normalized.csv` (rolling z-score used for peak detection), `ppg_resample_report.txt`, and diagnostic figures `ppg_rejected.png`, `ppg_overview.png`, `ppg_spectrogram.png`
+- **`features/eda/`** — EDA intermediate files: `eda_resampled.csv` (resistance in kΩ), `eda_resample_report.txt`, `eda_overview.png`, and `SCR_events.csv` (discrete skin conductance response events)
 - **`features/cognition/powerBands.csv`** — EEG band powers feeding cognition metrics
 - **`features/emotions/`** — e.g. `rmsSignals.csv`, `emotionClassifierInputs.csv`, plus `original/` when using RMS editing tools
 - **`features/events/playback_annotations.json`** — point/zone annotations for playback (seeded from `rawData/event.csv` once, then user-editable in the app)
@@ -150,6 +172,20 @@ POV movie conversion uses optional settings from, in order:
 The graphical **Offline processing** run uses the same merge rules from the **process working directory** and environment; it does not prompt for a config file path.
 
 JSON keys: `pov_data_root`, `ffmpeg_dir`, `screen_id`.
+
+## Technical documentation
+
+The [`doc/`](doc/) folder contains detailed technical descriptions of each processing pipeline for traceability and scientific reference:
+
+| File | Pipeline |
+|------|----------|
+| [`doc/overview.md`](doc/overview.md) | Pipeline orchestration, step order, session layout, shared 2 Hz timebase |
+| [`doc/pipeline_heart.md`](doc/pipeline_heart.md) | Shimmer PPG → Heart Rate Dynamics (SQI + MAD artifact rejection, NeuroKit2, HRV) |
+| [`doc/pipeline_arousal.md`](doc/pipeline_arousal.md) | Shimmer EDA → Arousal (cvxEDA tonic/phasic decomposition, SCR detection) |
+| [`doc/pipeline_cognition.md`](doc/pipeline_cognition.md) | Hermes EEG → Cognitive Indexes (Welch power bands, engagement metrics) |
+| [`doc/pipeline_emotions.md`](doc/pipeline_emotions.md) | Hermes EMG → Emotion Classification (two-stage LDA/KNN classifier) |
+| [`doc/pipeline_events.md`](doc/pipeline_events.md) | Raw Events → Feature / Web Events + Playback Annotations |
+| [`doc/pipeline_positioning.md`](doc/pipeline_positioning.md) | GPS and UWB Indoor Positioning (multilateration) |
 
 ## Trust and bundled models
 
