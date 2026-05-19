@@ -112,7 +112,8 @@ class HermesDataInterface:
 
     def getEEG(self):
         """
-        Load and return the EEG data for this recording as a DataFrame.
+        Load and return the EEG data for this recording together with the
+        original hardware timestamps.
 
         Searches for a raw EEG file, strips corrupted timestamps, removes
         saturated electrode values, and assembles the channel layout:
@@ -123,8 +124,10 @@ class HermesDataInterface:
             RightHemi : channel 1 - channel 5 (differential)
 
         Returns:
-            pandas DataFrame with one column per channel, or None if no data
-            file is found.
+            Tuple (timestamps, df) where ``timestamps`` is a 1-D numpy array
+            of hardware-clock timestamps in seconds from recording start and
+            ``df`` is a pandas DataFrame with one column per channel.
+            Returns ``(None, None)`` if no data file is found.
         """
         potentialFilenames = ["rawEEG_0.csv", "eeg.tmp", "eeg.csv", "eegRec_0.csv"]
         data = None
@@ -145,22 +148,25 @@ class HermesDataInterface:
         if data is None:
             printError("[HermesDataInterface] No EEG data could be loaded.")
             printError(f"[HermesDataInterface] Looked for: {tried}")
-            return None
+            return None, None
 
         printInfo(f"[HermesDataInterface] EEG raw data shape: {data.shape}")
 
         if data.shape[1] < 6:
             printError(f"[HermesDataInterface] EEG data has only {data.shape[1]} columns — "
                        f"expected at least 6. File may be corrupt or use an unexpected format.")
-            return None
+            return None, None
+
+        timestamps = normalise_timestamps_to_seconds(data[:, 0])
 
         # Remove saturated values (disconnected electrodes)
         data[abs(abs(data) - 187500) < 0.1] = np.nan
 
-        return pd.DataFrame({
+        df = pd.DataFrame({
             'AF7':      data[:, 2] - data[:, 5] / 2,
             'AF8':      data[:, 1] - data[:, 5] / 2,
             'Temporal': data[:, 5],
             'LeftHemi': data[:, 2],
             'RightHemi': data[:, 1] - data[:, 5],
         })
+        return timestamps, df

@@ -46,11 +46,12 @@ _SHIMMER_TIMESTAMP_COL = 0
 # Candidate files and the column index that holds the EDA/GSR value.
 # Checked in order; the first file that exists and has enough columns wins.
 #   shimmer.csv / rawShimmer_0.csv  — full multi-channel Shimmer export (col 4)
-#   gsr.tmp                         — two-column legacy dump (col 1): timestamps, EDA
+#   gsr.tmp / gsr.csv               — two-column legacy dump (col 1): timestamps, EDA
 _EDA_CANDIDATES = [
     ("shimmer.csv",      4),
     ("rawShimmer_0.csv", 4),
     ("gsr.tmp",          1),
+    ("gsr.csv",          1),
 ]
 
 
@@ -65,8 +66,8 @@ def _load_shimmer_eda_signal(rec_path):
 
     ``shimmer.csv`` / ``rawShimmer_0.csv`` are full multi-channel Shimmer
     exports (no header); column 4 contains raw GSR resistance in kΩ.
-    ``gsr.tmp`` is a headerless two-column file (timestamps, EDA) where
-    column 1 holds the EDA/GSR value directly.
+    ``gsr.tmp`` / ``gsr.csv`` are headerless two-column files (timestamps,
+    EDA) where column 1 holds the EDA/GSR value directly.
 
     Conversion to conductance (µS) is performed later, after resampling
     onto the regular grid.
@@ -96,7 +97,7 @@ def _load_shimmer_eda_signal(rec_path):
 
     printWarning(
         f"[edaProcessor] No Shimmer EDA file in {raw_dir} "
-        "(expected shimmer.csv, rawShimmer_0.csv, or gsr.tmp). "
+        "(expected shimmer.csv, rawShimmer_0.csv, gsr.tmp, or gsr.csv). "
         "Shimmer was likely not used for this recording."
     )
     return None

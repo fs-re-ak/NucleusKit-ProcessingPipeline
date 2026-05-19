@@ -35,6 +35,7 @@ from nucleuskit_pipeline.hermes.classifier.realtime import StreamingEMGClassifie
 from nucleuskit_pipeline.hermes.dev.channel_fixer.channel_fixer.rms_columns import (
     normalize_rms_dataframe,
 )
+from nucleuskit_pipeline.hermes.processor.cognition_processor import _simple_resample
 from nucleuskit_pipeline.hermes.processor.emotions_report import generate_report
 from nucleuskit_pipeline.logging_utils import printInfo, printError
 
@@ -225,7 +226,7 @@ def computeEmotions(recpath):
         if result is None:
             printError("[emotionsProcessor] loadEXG returned None — cannot proceed")
             return
-        _timestamps, eeg_data = result
+        timestamps, eeg_data = result
         if eeg_data is None:
             printError("[emotionsProcessor] eeg_data is None — cannot proceed")
             return
@@ -257,18 +258,35 @@ def computeEmotions(recpath):
         # channel (invalid/disconnected hardware sample) before nan_to_num.
         nan_flags: deque = deque(maxlen=clf.window_samples)
 
+        # Parallel buffer of hardware timestamps for each sample in the
+        # current window.  Used to compute the median window timestamp so
+        # that output timestamps reflect actual recording time rather than
+        # being derived from the nominal sampling rate.
+        ts_buffer: deque = deque(maxlen=clf.window_samples)
+
+        # Fallback: if timestamps could not be read from the EXG file, use
+        # the classifier's sample-count clock instead.
+        use_hw_timestamps = timestamps is not None
+
         for sample_idx in range(eeg_data.shape[0]):
             row = eeg_data[sample_idx, :]
             nan_flags.append(bool(np.isnan(row).any()))
+            if use_hw_timestamps:
+                ts_buffer.append(timestamps[sample_idx])
             row = np.nan_to_num(row, nan=0.0)
             proba = clf.push_sample(row)
             if proba is None:
                 continue
 
-            # Center of the analysis window.  clf.time_sec is the end of the
-            # window (total_samples / sampling_rate); subtracting half the
-            # window duration gives the exact center on a clean 0.5 s grid.
-            ts = clf.time_sec - clf.window_sec / 2
+            # Representative timestamp for this window: median of the actual
+            # hardware timestamps recorded during the window.  This tracks
+            # clock drift and real gaps correctly.  Fall back to the
+            # classifier's sample-count clock when hardware timestamps are
+            # unavailable.
+            if use_hw_timestamps and len(ts_buffer) == clf.window_samples:
+                ts = float(np.median(ts_buffer))
+            else:
+                ts = clf.time_sec - clf.window_sec / 2
 
             window_has_lost_samples = (sum(nan_flags) / len(nan_flags)) > NULL_WINDOW_NAN_THRESHOLD
 
@@ -310,6 +328,15 @@ def computeEmotions(recpath):
                 emotion_rows,
                 columns=["Timestamp"] + EMOTION_COLUMNS,
             )
+
+            # Snap the actual (hardware-clock) timestamps to a clean 0.5 s
+            # output grid so the Emotions.csv shares the same timebase as all
+            # other pipeline results.  NaN emotion rows (hardware gaps) remain
+            # NaN after resampling; any output bin whose two bracketing valid
+            # source timestamps are > 1.0 s apart is also set to NaN.
+            if use_hw_timestamps:
+                emo_df = _simple_resample(emo_df, target_interval=0.5)
+
             printInfo(f"[emotionsProcessor] Writing {emotions_path}")
             emo_df.to_csv(emotions_path, na_rep="NULL", index=False)
 

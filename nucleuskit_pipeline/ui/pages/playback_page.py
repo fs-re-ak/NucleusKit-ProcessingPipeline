@@ -551,6 +551,12 @@ class MetricsPlotWidget(QWidget):
         self._playhead = pg.InfiniteLine(pos=0.0, angle=90, movable=False, pen=pg.mkPen("w", width=2))
         self._playhead.setZValue(_Z_PLAYHEAD)
 
+        # Raw (NaN-preserved) per-curve data stored at load time so smoothing
+        # can be applied without re-reading the CSV.
+        self._raw_data: list[tuple[np.ndarray, np.ndarray]] = []
+        self._smooth_k: int = 1      # 1 = Off (no smoothing)
+        self._dt: float = 0.5        # median timestamp step in seconds
+
         vb = self._plot.getViewBox()
         vb.sigRangeChanged.connect(self._on_view_range_changed)
         self._trim_context_menu()
@@ -560,10 +566,28 @@ class MetricsPlotWidget(QWidget):
         self._toggle_layout.setContentsMargins(4, 4, 4, 0)
         self._toggle_layout.setSpacing(10)
 
+        # Smooth bar — persists across CSV reloads (toggle bar is rebuilt each time)
+        self._smooth_bar = QWidget()
+        _sl = QHBoxLayout(self._smooth_bar)
+        _sl.setContentsMargins(4, 0, 4, 4)
+        _sl.setSpacing(6)
+        _sl.addWidget(QLabel("Smooth:"))
+        self._smooth_slider = QSlider(Qt.Orientation.Horizontal)
+        self._smooth_slider.setRange(1, 41)   # 1 = Off; 41 → ~20 s at 0.5 s/sample
+        self._smooth_slider.setValue(1)
+        self._smooth_slider.setFixedWidth(150)
+        self._smooth_slider.valueChanged.connect(self._on_smooth_changed)
+        _sl.addWidget(self._smooth_slider)
+        self._smooth_value_label = QLabel("Off")
+        self._smooth_value_label.setFixedWidth(46)
+        _sl.addWidget(self._smooth_value_label)
+        _sl.addStretch(1)
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._plot, stretch=1)
         layout.addWidget(self._toggle_bar)
+        layout.addWidget(self._smooth_bar)
 
     def plot_widget(self) -> pg.PlotWidget:
         return self._plot
@@ -681,6 +705,15 @@ class MetricsPlotWidget(QWidget):
         self._t_min = float(np.nanmin(ts))
         self._t_max = float(np.nanmax(ts))
 
+        # Reset smoothing state for the new dataset.
+        self._raw_data.clear()
+        self._dt = float(np.median(np.diff(ts))) if len(ts) > 1 else 0.5
+        self._smooth_k = 1
+        self._smooth_slider.blockSignals(True)
+        self._smooth_slider.setValue(1)
+        self._smooth_slider.blockSignals(False)
+        self._smooth_value_label.setText("Off")
+
         # Prefer emotion column order when emotion columns are present.
         emotion_cols = [c for c in EMOTION_COLUMNS if c in df.columns]
         if emotion_cols:
@@ -704,8 +737,9 @@ class MetricsPlotWidget(QWidget):
         x = ts
         emotion_idx = 0
         for col in plot_cols:
-            y = df[col].to_numpy(dtype=np.float64)
-            y = np.where(np.isfinite(y), y, 0.0)
+            y_raw = df[col].to_numpy(dtype=np.float64)   # NaN preserved for smoothing
+            self._raw_data.append((x, y_raw))
+            y = y_raw  # NaN → natural line break in pyqtgraph (no data gap)
             hex_color = PLAYBACK_EMOTION_COLORS.get(col)
             if hex_color is not None:
                 qcol = QColor(hex_color)
@@ -744,6 +778,40 @@ class MetricsPlotWidget(QWidget):
         self._plot.addItem(self._playhead)
         self.set_playhead_seconds(self._t_min)
         return None
+
+    # ------------------------------------------------------------------
+    # Smoothing
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _smooth_y(y_raw: np.ndarray, k: int) -> np.ndarray:
+        """Centered rolling mean, NaN-aware.  k=1 returns the array unchanged."""
+        if k <= 1:
+            return y_raw
+        return (
+            pd.Series(y_raw)
+            .rolling(k, center=True, min_periods=1)
+            .mean()
+            .to_numpy()
+        )
+
+    def _apply_smooth(self) -> None:
+        """Re-render every visible curve with the current smoothing window."""
+        for curve, (x, y_raw) in zip(self._curves, self._raw_data):
+            y_s = self._smooth_y(y_raw, self._smooth_k)
+            curve.setData(x, y_s)  # NaN → natural line break in pyqtgraph
+
+    def _on_smooth_changed(self, k: int) -> None:
+        self._smooth_k = k
+        if k <= 1:
+            self._smooth_value_label.setText("Off")
+        else:
+            self._smooth_value_label.setText(f"{k * self._dt:.1f} s")
+        self._apply_smooth()
+
+    # ------------------------------------------------------------------
+    # Playhead
+    # ------------------------------------------------------------------
 
     def set_playhead_seconds(self, t: float) -> None:
         t_clamped = max(self._t_min, min(self._t_max, float(t)))

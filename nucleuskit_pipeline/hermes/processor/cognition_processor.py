@@ -20,6 +20,11 @@ from scipy.signal import welch, butter, filtfilt, iirnotch
 from nucleuskit_pipeline.hermes.processor.data_interface import HermesDataInterface
 from nucleuskit_pipeline.logging_utils import printInfo, printWarning, printError
 
+# Gaps in the hardware timestamp stream that are at least this long (seconds)
+# are treated as true recording breaks; all windows that straddle a break are
+# emitted as NaN rows (matching the convention used by shimmerResampler).
+GAP_THRESHOLD_S = 5.0
+
 # NOTE: np.seterr(all='raise') was previously set here. Removed because it
 # converts benign floating-point events (e.g. 0/0 in normalisation) into
 # exceptions that silently escape the pipeline's broad except-as-warning
@@ -231,11 +236,14 @@ def compute_eeg_power_bands(df, sf=HermesDataInterface.SAMPLING_RATE, window_dur
         start_idx = win_idx * step_samples
         end_idx = start_idx + window_samples
 
-        # Timestamp at the center of the window, using original recording time
-        # when available, otherwise fall back to sample-index / sf.
+        # Representative timestamp for this window: median of the recorded
+        # hardware timestamps within the window.  The median is more robust
+        # to per-sample jitter than a simple midpoint and correctly tracks
+        # any long-term drift between the hardware clock and nominal rate.
+        # Fall back to sample-index / sf when no timestamps are available.
         if timestamps is not None:
             ts_window = timestamps[start_idx:end_idx]
-            timestamp = float((ts_window[0] + ts_window[-1]) / 2.0)
+            timestamp = float(np.median(ts_window))
         else:
             timestamp = (start_idx + window_samples / 2) / sf
 
@@ -473,7 +481,7 @@ def computeCognitiveIndexes(recpath):
 
         if powerbands is None:
             printInfo("[cognitionProcessor] Loading EEG data...")
-            eegData = HermesDataInterface(recpath).getEEG()
+            original_timestamps, eegData = HermesDataInterface(recpath).getEEG()
 
             if eegData is None:
                 printError("[cognitionProcessor] HermesDataInterface.getEEG returned None — no EEG data available")
@@ -482,10 +490,34 @@ def computeCognitiveIndexes(recpath):
             printInfo(f"[cognitionProcessor] EEG loaded: {len(eegData)} samples, columns: {list(eegData.columns)}")
 
             sf = HermesDataInterface.SAMPLING_RATE
-            # Original per-sample timestamps (seconds from recording start).
-            original_timestamps = np.arange(len(eegData), dtype=float) / sf
-            # Samples that were hardware-invalid (NaN) before any interpolation.
-            hardware_invalid = eegData.isna().any(axis=1).to_numpy()
+
+            if original_timestamps is None:
+                # Fallback: synthesise timestamps from sample index when the
+                # hardware clock column could not be read.
+                printWarning(
+                    "[cognitionProcessor] Hardware timestamps unavailable — "
+                    "falling back to synthetic timestamps (sample index / fs). "
+                    "Gap detection from timestamps is disabled."
+                )
+                original_timestamps = np.arange(len(eegData), dtype=float) / sf
+                gap_sample_mask = np.zeros(len(eegData), dtype=bool)
+            else:
+                # Detect large gaps in the actual hardware timestamp stream.
+                # Samples immediately following a break are flagged so that
+                # power-band windows overlapping the break are emitted as NaN.
+                dt = np.diff(original_timestamps)
+                gap_indices = np.where(dt >= GAP_THRESHOLD_S)[0]
+                gap_sample_mask = np.zeros(len(original_timestamps), dtype=bool)
+                if len(gap_indices):
+                    printWarning(
+                        f"[cognitionProcessor] {len(gap_indices)} hardware timestamp gap(s) "
+                        f">= {GAP_THRESHOLD_S:.0f} s detected — affected windows will be NaN."
+                    )
+                    gap_sample_mask[gap_indices + 1] = True
+
+            # Samples that were hardware-invalid (NaN) before any interpolation,
+            # combined with samples that follow a large timestamp gap.
+            hardware_invalid = eegData.isna().any(axis=1).to_numpy() | gap_sample_mask
 
             printInfo("[cognitionProcessor] Preprocessing EEG...")
             eegData, original_timestamps, hardware_invalid = preprocess_eeg(

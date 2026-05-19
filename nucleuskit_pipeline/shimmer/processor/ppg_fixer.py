@@ -2,16 +2,22 @@
 PPG Fixer: standalone post-hoc artifact rejection for an already-processed session.
 
 This module is kept for backward-compatibility and developer use.  The artifact
-rejection logic (squared z-score outlier detection, margin expansion, figure
-generation) now lives in ``heart.py`` and is executed automatically as part of
-the standard ``computeHeartDynamics`` pipeline.  Use ``fix_ppg_session`` only
-when you need to re-apply the rejection to a session that was processed by an
-older pipeline version.
+rejection logic now lives in ``heart.py`` and is executed automatically as part
+of the standard ``computeHeartDynamics`` pipeline.  Use ``fix_ppg_session`` only
+when you need to re-apply rejection to a session processed by an older pipeline
+version.
+
+Artifact rejection uses the two-stage approach implemented in
+``apply_ppg_artifact_rejection``:
+  Stage 1 — Spectral Quality Index (SQI): amplitude-invariant gate that
+    rejects windows lacking cardiac-band power (noise, motion, flat lines).
+  Stage 2 — Local MAD glitch detector: rolling z-score within SQI-passing
+    segments to catch spikes and clipping transients.
 
 Steps performed by ``fix_ppg_session``
 ---------------------------------------
 1. Load the already-resampled PPG from ``features/ppg/ppg_resampled.csv``.
-2. Apply squared z-score artifact rejection (via ``apply_ppg_artifact_rejection``).
+2. Apply two-stage artifact rejection (via ``apply_ppg_artifact_rejection``).
 3. Overwrite ``features/ppg/ppg_resampled.csv`` with the cleaned signal.
 4. Delete the cached ``results/HeartDynamics.csv`` so it is recomputed.
 5. Re-run peak detection, diagnostic figure, sliding HRV and save a fresh

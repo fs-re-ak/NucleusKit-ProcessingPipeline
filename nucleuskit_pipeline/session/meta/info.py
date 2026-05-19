@@ -44,10 +44,13 @@ class RecordingInfo():
 
         # check the length of the allrecordings (in time)
         try:
-            if os.path.exists(os.path.join(self.basepath, "rawData/rawShimmer_0.csv")):
-                shimmerRecording = loadCSVAsNumpy(os.path.join(self.basepath, "rawData/rawShimmer_0.csv"))
-            else:
-                shimmerRecording = loadCSVAsNumpy(os.path.join(self.basepath, "rawData/gsr.tmp"))
+            _shimmer_candidates = ["shimmer.csv", "rawShimmer_0.csv", "gsr.tmp", "gsr.csv"]
+            shimmerRecording = None
+            for _name in _shimmer_candidates:
+                _path = os.path.join(self.basepath, "rawData", _name)
+                if os.path.exists(_path):
+                    shimmerRecording = loadCSVAsNumpy(_path)
+                    break
             shimmerDuration = shimmerRecording[-1, 0] - shimmerRecording[0, 0]
             self.shimmerReadable = True
         except:
