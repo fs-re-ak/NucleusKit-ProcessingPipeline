@@ -1,11 +1,14 @@
 ﻿"""
 Cognition Processor
 
-Computes cognitive metrics (engagement, frontal asymmetry) from EEG data,
-including signal preprocessing, power band extraction, and index computation.
+Computes cognitive metrics from EEG data using the cleaned temporal pipeline:
+artefact rejection on T9/T10, bilateral temporal band-power averages for primary
+metrics (Engagement, Focus, CognitiveLoad), and frontal/hemispheric channels for
+secondary metrics (Frontal, Lateralization).
 
 Feature traceability: per-window EEG band powers are written under the session's
-``features/cognition/`` folder (``powerBands.csv``), separate from other processors.
+``features/cognition/`` folder alongside artefact statistics and temporal band
+power averages.
 
 Author(s):
     Fred Simard (fs@re-ak.com), ©RE-AK Technologies Inc.
@@ -185,6 +188,126 @@ def preprocess_eeg(df, sf=HermesDataInterface.SAMPLING_RATE,
 
 
 # ---------------------------------------------------------------------------
+# Artefact rejection
+# ---------------------------------------------------------------------------
+
+def reject_temporal_artefacts(filtered_df, hardware_invalid, sf=HermesDataInterface.SAMPLING_RATE):
+    """
+    Reject 1-second non-overlapping epochs on T9 and T10 using four signal-quality
+    criteria from the cleaned EEG pipeline spec (cleanEEG.py / inspectEEG.py).
+
+    An epoch is flagged if *either* channel fails *any* of the following:
+
+        1. NaN fraction in raw signal (from hardware_invalid) > 20 %
+        2. Peak absolute amplitude in filtered signal > 75 µV
+        3. Peak-to-peak in filtered signal > 60 µV
+        4. P(30–45 Hz) / P(1–45 Hz) via Welch > 0.30  (EMG contamination)
+
+    Args:
+        filtered_df: Bandpass-filtered DataFrame; must contain 'T9' and 'T10' columns.
+        hardware_invalid: Boolean 1-D array (same length as filtered_df) marking
+            samples that were NaN before filtering (hardware disconnects or gaps).
+        sf: Sampling frequency in Hz (default 250).
+
+    Returns:
+        Tuple (rejected_mask, artefact_stats):
+            - rejected_mask: boolean numpy array, True for every sample belonging
+              to a rejected 1-second epoch.
+            - artefact_stats: single-row DataFrame with summary counts written to
+              ``features/cognition/artefactStats.csv``.
+    """
+    for ch in ('T9', 'T10'):
+        if ch not in filtered_df.columns:
+            printWarning(f"[cognitionProcessor] reject_temporal_artefacts: '{ch}' not found — skipping artefact rejection")
+            n = len(filtered_df)
+            return np.zeros(n, dtype=bool), None
+
+    n_samples   = len(filtered_df)
+    epoch_len   = int(sf)          # 1 s = 250 samples at 250 Hz
+    n_epochs    = n_samples // epoch_len
+
+    rejected_mask = np.zeros(n_samples, dtype=bool)
+
+    t9  = filtered_df['T9'].to_numpy()
+    t10 = filtered_df['T10'].to_numpy()
+
+    # Per-criterion rejection counters (first criterion that triggered rejection)
+    criterion_counts = {'nan': 0, 'peak_amp': 0, 'ptp': 0, 'emg_ratio': 0}
+
+    for ei in range(n_epochs):
+        s, e = ei * epoch_len, (ei + 1) * epoch_len
+        epoch_bad   = False
+        cause       = None
+
+        for ch_name, ch_data in (('T9', t9), ('T10', t10)):
+            # Criterion 1: NaN fraction in raw signal
+            nan_frac = float(hardware_invalid[s:e].mean())
+            if nan_frac > 0.20:
+                cause = 'nan'
+                epoch_bad = True
+                break
+
+            sig = ch_data[s:e]
+
+            # Criterion 2: Peak absolute amplitude
+            if np.nanmax(np.abs(sig)) > 75.0:
+                cause = 'peak_amp'
+                epoch_bad = True
+                break
+
+            # Criterion 3: Peak-to-peak
+            if (np.nanmax(sig) - np.nanmin(sig)) > 60.0:
+                cause = 'ptp'
+                epoch_bad = True
+                break
+
+            # Criterion 4: EMG power ratio P(30–45) / P(1–45)
+            try:
+                freqs, psd = welch(sig, fs=sf, nperseg=epoch_len)
+                mask_emg   = (freqs >= 30) & (freqs <= 45)
+                mask_total = (freqs >=  1) & (freqs <= 45)
+                p_emg   = np.trapz(psd[mask_emg],   freqs[mask_emg])
+                p_total = np.trapz(psd[mask_total],  freqs[mask_total])
+                if (p_emg / (p_total + 1e-12)) > 0.30:
+                    cause = 'emg_ratio'
+                    epoch_bad = True
+                    break
+            except Exception as exc:
+                printWarning(f"[cognitionProcessor] Welch failed on artefact epoch {ei} channel {ch_name}: {exc}")
+
+        if epoch_bad:
+            rejected_mask[s:e] = True
+            criterion_counts[cause] += 1
+
+    n_rejected_epochs  = int(rejected_mask[:n_epochs * epoch_len]
+                              .reshape(n_epochs, epoch_len).any(axis=1).sum())
+    pct_epochs         = round(100.0 * n_rejected_epochs / max(n_epochs, 1), 1)
+    n_samples_flagged  = int(rejected_mask.sum())
+    pct_samples        = round(100.0 * n_samples_flagged / max(n_samples, 1), 1)
+
+    printInfo(
+        f"[cognitionProcessor] Artefact rejection: {n_rejected_epochs}/{n_epochs} epochs rejected "
+        f"({pct_epochs} % of epochs, {pct_samples} % of samples) — "
+        f"nan={criterion_counts['nan']}, peak={criterion_counts['peak_amp']}, "
+        f"ptp={criterion_counts['ptp']}, emg={criterion_counts['emg_ratio']}"
+    )
+
+    artefact_stats = pd.DataFrame([{
+        'n_epochs_total':         n_epochs,
+        'n_epochs_rejected':      n_rejected_epochs,
+        'pct_epochs_rejected':    pct_epochs,
+        'n_rejected_by_nan':      criterion_counts['nan'],
+        'n_rejected_by_peak_amp': criterion_counts['peak_amp'],
+        'n_rejected_by_ptp':      criterion_counts['ptp'],
+        'n_rejected_by_emg_ratio': criterion_counts['emg_ratio'],
+        'n_samples_flagged':      n_samples_flagged,
+        'pct_samples_flagged':    pct_samples,
+    }])
+
+    return rejected_mask, artefact_stats
+
+
+# ---------------------------------------------------------------------------
 # Power band extraction
 # ---------------------------------------------------------------------------
 
@@ -247,10 +370,10 @@ def compute_eeg_power_bands(df, sf=HermesDataInterface.SAMPLING_RATE, window_dur
         else:
             timestamp = (start_idx + window_samples / 2) / sf
 
-        # Windows that contain hardware-invalid samples are emitted as NaN rows
-        # so downstream consumers can identify and exclude them while the
-        # timeline (timestamp column) remains intact.
-        if hardware_invalid is not None and hardware_invalid[start_idx:end_idx].any():
+        # Windows where more than 25 % of samples are flagged (hardware-invalid
+        # or artefact-rejected) are emitted as NaN rows so the timeline stays
+        # intact while bad data is clearly marked.
+        if hardware_invalid is not None and hardware_invalid[start_idx:end_idx].mean() > 0.25:
             for ch_name in channel_names:
                 for band_name in band_names:
                     rows.append({
@@ -290,80 +413,130 @@ def compute_eeg_power_bands(df, sf=HermesDataInterface.SAMPLING_RATE, window_dur
 
 
 # ---------------------------------------------------------------------------
-# Engagement index computation
+# Cognitive index computation
 # ---------------------------------------------------------------------------
 
-def compute_engagement_indexes(df):
+def compute_cognitive_indexes(df):
     """
-    Compute per-channel engagement indexes and derive cognitive metrics.
+    Compute cognitive metrics from cleaned EEG power bands.
 
-    Engagement = Beta / (Alpha + Theta), computed per channel, then pivoted
-    to wide format and used to derive:
-        Intertemporal : engagement on the Temporal channel
-        Lateralization: log(LeftHemi) - log(RightHemi)
-        Frontal       : mean engagement of AF7 and AF8
-        Engagement    : mean engagement across AF7, AF8 and Temporal
+    Primary metrics — bilateral temporal average of T9 and T10:
+        Engagement   : avg_beta / (avg_alpha + avg_theta)      [Pope et al. 1995]
+        Focus        : avg_beta / avg_alpha
+        CognitiveLoad: (avg_theta × avg_beta) / avg_alpha²     [Borghini et al. 2014]
+
+    Secondary metrics — frontal channels AF7 / AF8 and hemispheric channels:
+        Frontal      : mean(β/(α+θ) for AF7, β/(α+θ) for AF8)
+        Lateralization: log(clip(LeftHemi_eng, 1e-12)) − log(clip(RightHemi_eng, 1e-12))
 
     Args:
-        df: DataFrame with columns [Timestamp, channel, band, power]
+        df: DataFrame with columns [Timestamp, channel, band, power].
 
     Returns:
-        DataFrame with columns [Timestamp, Engagement, Intertemporal,
-        Lateralization, Frontal], or None on failure.
+        Tuple (result, temporal_bands):
+            result         — DataFrame [Timestamp, Engagement, Focus, CognitiveLoad,
+                             Frontal, Lateralization], or None on failure.
+            temporal_bands — DataFrame with per-timestamp bilateral temporal band
+                             averages and relative powers (for feature storage), or
+                             None on failure.
     """
-    printInfo("[cognitionProcessor] Computing engagement indexes")
+    printInfo("[cognitionProcessor] Computing cognitive indexes")
 
-    required_bands = {'alpha', 'beta', 'theta'}
-    present_bands = set(df['band'].unique()) if 'band' in df.columns else set()
-    missing_bands = required_bands - present_bands
+    required_bands = {'alpha', 'beta', 'theta', 'delta', 'gamma'}
+    present_bands  = set(df['band'].unique()) if 'band' in df.columns else set()
+    missing_bands  = required_bands - present_bands
     if missing_bands:
-        printError(f"[cognitionProcessor] compute_engagement_indexes: missing bands {missing_bands} "
-                   f"in power-bands DataFrame. Present: {present_bands}")
-        return None
+        printError(f"[cognitionProcessor] compute_cognitive_indexes: missing bands {missing_bands}. "
+                   f"Present: {present_bands}")
+        return None, None
 
     try:
         df_pivot = df.pivot_table(
             index=['Timestamp', 'channel'],
             columns='band',
             values='power',
-            aggfunc='mean'
+            aggfunc='mean',
         ).reset_index()
+        df_pivot.columns.name = None
     except Exception as e:
         printError(f"[cognitionProcessor] pivot_table failed: {e}")
         printError(f"[cognitionProcessor] Traceback:\n{traceback.format_exc()}")
-        return None
+        return None, None
 
-    df_pivot['engagement'] = df_pivot['beta'] / (df_pivot['alpha'] + df_pivot['theta'] + 1e-8)
+    required_channels = {'T9', 'T10', 'AF7', 'AF8', 'LeftHemi', 'RightHemi'}
+    present_channels  = set(df_pivot['channel'].unique())
+    missing_channels  = required_channels - present_channels
+    if missing_channels:
+        printError(f"[cognitionProcessor] compute_cognitive_indexes: missing channels {missing_channels}. "
+                   f"Present: {present_channels}")
+        return None, None
 
     try:
-        eng_wide = df_pivot[['Timestamp', 'channel', 'engagement']].pivot_table(
-            index='Timestamp', columns='channel', values='engagement'
-        ).reset_index()
-        eng_wide.columns.name = None
+        # --- Bilateral temporal averages (T9 + T10) ---
+        temporal_df  = df_pivot[df_pivot['channel'].isin(['T9', 'T10'])]
+        temporal_avg = temporal_df.groupby('Timestamp')[
+            ['alpha', 'beta', 'theta', 'delta', 'gamma']
+        ].mean()
+
+        avg_alpha = temporal_avg['alpha']
+        avg_beta  = temporal_avg['beta']
+        avg_theta = temporal_avg['theta']
+        avg_delta = temporal_avg['delta']
+        avg_gamma = temporal_avg['gamma']
+        all_power = avg_beta + avg_alpha + avg_theta + avg_delta + avg_gamma
+
+        engagement  = avg_beta / (avg_alpha + avg_theta + 1e-8)
+        focus       = avg_beta / (avg_alpha + 1e-8)
+        cog_load    = (avg_theta * avg_beta) / (avg_alpha ** 2 + 1e-8)
+
+        # --- Frontal engagement (AF7 + AF8 average) ---
+        frontal_df         = df_pivot[df_pivot['channel'].isin(['AF7', 'AF8'])].copy()
+        frontal_df['eng']  = frontal_df['beta'] / (frontal_df['alpha'] + frontal_df['theta'] + 1e-8)
+        frontal_avg        = frontal_df.groupby('Timestamp')['eng'].mean()
+
+        # --- Hemispheric lateralization (LeftHemi vs RightHemi) ---
+        hemi_df        = df_pivot[df_pivot['channel'].isin(['LeftHemi', 'RightHemi'])].copy()
+        hemi_df['eng'] = hemi_df['beta'] / (hemi_df['alpha'] + hemi_df['theta'] + 1e-8)
+
+        left_eng  = hemi_df[hemi_df['channel'] == 'LeftHemi'].set_index('Timestamp')['eng']
+        right_eng = hemi_df[hemi_df['channel'] == 'RightHemi'].set_index('Timestamp')['eng']
+        lat       = (np.log(np.clip(left_eng,  1e-12, None)) -
+                     np.log(np.clip(right_eng, 1e-12, None)))
+
+        # --- Assemble results ---
+        ts = temporal_avg.index
+
+        result = pd.DataFrame({
+            'Timestamp':    ts,
+            'Engagement':   engagement.values,
+            'Focus':        focus.values,
+            'CognitiveLoad': cog_load.values,
+            'Frontal':      frontal_avg.reindex(ts).values,
+            'Lateralization': lat.reindex(ts).values,
+        })
+
+        # Temporal band powers saved to features (not in Cognition.csv)
+        temporal_bands = pd.DataFrame({
+            'Timestamp': ts,
+            'avg_beta':  avg_beta.values,
+            'avg_alpha': avg_alpha.values,
+            'avg_theta': avg_theta.values,
+            'avg_delta': avg_delta.values,
+            'avg_gamma': avg_gamma.values,
+            'all_power': all_power.values,
+            'rel_beta':  (avg_beta  / (all_power + 1e-12)).values,
+            'rel_alpha': (avg_alpha / (all_power + 1e-12)).values,
+            'rel_theta': (avg_theta / (all_power + 1e-12)).values,
+            'rel_delta': (avg_delta / (all_power + 1e-12)).values,
+            'rel_gamma': (avg_gamma / (all_power + 1e-12)).values,
+        })
+
     except Exception as e:
-        printError(f"[cognitionProcessor] channel pivot failed: {e}")
+        printError(f"[cognitionProcessor] compute_cognitive_indexes failed: {e}")
         printError(f"[cognitionProcessor] Traceback:\n{traceback.format_exc()}")
-        return None
+        return None, None
 
-    required_channels = {'AF7', 'AF8', 'Temporal', 'LeftHemi', 'RightHemi'}
-    missing_channels = required_channels - set(eng_wide.columns)
-    if missing_channels:
-        printError(f"[cognitionProcessor] compute_engagement_indexes: missing channels {missing_channels} "
-                   f"after pivot. Present: {set(eng_wide.columns)}")
-        return None
-
-    eng_wide['Intertemporal'] = eng_wide['Temporal']
-
-    eng_wide['Lateralization'] = (
-        np.log(np.clip(eng_wide['LeftHemi'], 1e-12, None)) -
-        np.log(np.clip(eng_wide['RightHemi'], 1e-12, None))
-    )
-
-    eng_wide['Frontal'] = (eng_wide['AF7'] + eng_wide['AF8']) / 2
-
-    eng_wide['Engagement'] = eng_wide[['AF7', 'AF8', 'Temporal']].mean(axis=1)
-
-    return eng_wide[['Timestamp', 'Engagement', 'Intertemporal', 'Lateralization', 'Frontal']]
+    return result, temporal_bands
 
 
 # ---------------------------------------------------------------------------
@@ -441,22 +614,44 @@ def _simple_resample(df, target_interval=0.5):
 
 def computeCognitiveIndexes(recpath):
     """
-    Compute cognitive indexes from EEG data.
+    Compute cognitive indexes from EEG data using the cleaned temporal pipeline.
 
-    Incremental outputs:
-    - If ``results/Cognition.csv`` exists, the step is skipped.
-    - If cognition must be rebuilt but ``features/cognition/powerBands.csv`` exists,
-      band powers are loaded from disk and not recomputed.
-    - ``powerBands.csv`` is only written when it is missing.
+    Pipeline steps
+    --------------
+    1. Load raw EEG; T9/T10 channels derived via midpoint re-reference.
+    2. Detect hardware timestamp gaps (≥ 5 s).
+    3. Bandpass + 60 Hz notch filter (0.5–45 Hz).
+    4. Artefact rejection on T9/T10 — 1 s epochs, four signal-quality criteria.
+       Bad epochs → sample mask; > 25 % of a 2 s analysis window flagged → NaN row.
+    5. Welch PSD on all channels (2 s windows, 75 % overlap).
+    6. Compute Engagement / Focus / CognitiveLoad from bilateral T9+T10 averages;
+       Frontal from AF7+AF8; Lateralization from LeftHemi/RightHemi.
+    7. Resample to 2 Hz (0.5 s grid).
+
+    Incremental caching
+    -------------------
+    - ``results/Cognition.csv`` exists → step skipped entirely.
+    - ``features/cognition/powerBands.csv`` exists *and* contains T9/T10 channels
+      → band powers loaded from cache; steps 1–5 are skipped.
+    - Any other case → full recomputation.
+
+    Outputs
+    -------
+    - ``results/Cognition.csv``                     — primary cognitive metrics
+    - ``features/cognition/powerBands.csv``         — per-window band powers (long format)
+    - ``features/cognition/artefactStats.csv``      — epoch-level rejection summary
+    - ``features/cognition/temporalBandPowers.csv`` — bilateral temporal band averages
 
     Args:
-        recpath: Path to the recording directory
+        recpath: Path to the recording directory.
     """
     printInfo("[cognitionProcessor] Computing Cognitive Indexes")
 
-    cognitive_path = os.path.join(recpath, 'results', 'Cognition.csv')
-    features_dir = os.path.join(recpath, "features", "cognition")
-    powerbands_path = os.path.join(features_dir, "powerBands.csv")
+    cognitive_path   = os.path.join(recpath, 'results', 'Cognition.csv')
+    features_dir     = os.path.join(recpath, 'features', 'cognition')
+    powerbands_path  = os.path.join(features_dir, 'powerBands.csv')
+    artefact_path    = os.path.join(features_dir, 'artefactStats.csv')
+    temporal_bp_path = os.path.join(features_dir, 'temporalBandPowers.csv')
 
     if os.path.isfile(cognitive_path):
         printInfo("[cognitionProcessor] Cognitive indexes already computed, using cached results")
@@ -467,17 +662,24 @@ def computeCognitiveIndexes(recpath):
 
         if os.path.isfile(powerbands_path):
             printInfo(
-                f"[cognitionProcessor] Loading cached power bands from {powerbands_path} "
-                "(will not recompute powerBands.csv)"
+                f"[cognitionProcessor] Loading cached power bands from {powerbands_path}"
             )
             powerbands = pd.read_csv(powerbands_path)
-            required = {"Timestamp", "channel", "band", "power"}
-            if not required.issubset(set(powerbands.columns)):
+            required_cols = {'Timestamp', 'channel', 'band', 'power'}
+            if not required_cols.issubset(set(powerbands.columns)):
                 printError(
                     f"[cognitionProcessor] Cached powerBands.csv missing columns "
-                    f"{required - set(powerbands.columns)} — will recompute from EEG"
+                    f"{required_cols - set(powerbands.columns)} — will recompute"
                 )
                 powerbands = None
+            elif not {'T9', 'T10'}.issubset(set(powerbands['channel'].unique())):
+                printInfo(
+                    "[cognitionProcessor] Cached powerBands.csv uses old channel layout "
+                    "(missing T9/T10) — recomputing from EEG"
+                )
+                powerbands = None
+            else:
+                printInfo("[cognitionProcessor] Cache is valid, skipping EEG reprocessing")
 
         if powerbands is None:
             printInfo("[cognitionProcessor] Loading EEG data...")
@@ -492,19 +694,14 @@ def computeCognitiveIndexes(recpath):
             sf = HermesDataInterface.SAMPLING_RATE
 
             if original_timestamps is None:
-                # Fallback: synthesise timestamps from sample index when the
-                # hardware clock column could not be read.
                 printWarning(
                     "[cognitionProcessor] Hardware timestamps unavailable — "
                     "falling back to synthetic timestamps (sample index / fs). "
-                    "Gap detection from timestamps is disabled."
+                    "Gap detection is disabled."
                 )
                 original_timestamps = np.arange(len(eegData), dtype=float) / sf
                 gap_sample_mask = np.zeros(len(eegData), dtype=bool)
             else:
-                # Detect large gaps in the actual hardware timestamp stream.
-                # Samples immediately following a break are flagged so that
-                # power-band windows overlapping the break are emitted as NaN.
                 dt = np.diff(original_timestamps)
                 gap_indices = np.where(dt >= GAP_THRESHOLD_S)[0]
                 gap_sample_mask = np.zeros(len(original_timestamps), dtype=bool)
@@ -515,25 +712,32 @@ def computeCognitiveIndexes(recpath):
                     )
                     gap_sample_mask[gap_indices + 1] = True
 
-            # Samples that were hardware-invalid (NaN) before any interpolation,
-            # combined with samples that follow a large timestamp gap.
+            # Capture hardware invalids BEFORE any interpolation so artefact
+            # rejection can assess raw NaN fraction per epoch.
             hardware_invalid = eegData.isna().any(axis=1).to_numpy() | gap_sample_mask
 
-            printInfo("[cognitionProcessor] Preprocessing EEG...")
-            eegData, original_timestamps, hardware_invalid = preprocess_eeg(
-                eegData, sf=sf,
-                timestamps=original_timestamps,
-                hardware_invalid=hardware_invalid,
-            )
-            if eegData is None:
-                printError("[cognitionProcessor] preprocess_eeg returned None — cannot proceed")
+            printInfo("[cognitionProcessor] Filtering EEG (bandpass + notch)...")
+            try:
+                filtered_eeg = bandpass_filter(eegData, sf)
+            except BaseException as e:
+                printError(f"[cognitionProcessor] bandpass_filter failed: {type(e).__name__}: {e}")
+                printError(f"[cognitionProcessor] Traceback:\n{traceback.format_exc()}")
                 return
+
+            printInfo("[cognitionProcessor] Running temporal artefact rejection...")
+            artefact_mask, artefact_stats = reject_temporal_artefacts(
+                filtered_eeg, hardware_invalid, sf
+            )
+
+            # Combine hardware invalids with artefact-rejected samples.
+            # The 25 % window threshold in compute_eeg_power_bands treats both equally.
+            combined_invalid = hardware_invalid | artefact_mask
 
             printInfo("[cognitionProcessor] Computing power bands...")
             powerbands = compute_eeg_power_bands(
-                eegData,
+                filtered_eeg,
                 timestamps=original_timestamps,
-                hardware_invalid=hardware_invalid,
+                hardware_invalid=combined_invalid,
             )
             if powerbands is None:
                 printError("[cognitionProcessor] compute_eeg_power_bands returned None — cannot proceed")
@@ -543,11 +747,20 @@ def computeCognitiveIndexes(recpath):
             printInfo(f"[cognitionProcessor] Saving power bands to {powerbands_path}...")
             powerbands.to_csv(powerbands_path, index=False)
 
-        printInfo("[cognitionProcessor] Computing engagement indexes...")
-        result = compute_engagement_indexes(powerbands)
+            if artefact_stats is not None:
+                artefact_stats.to_csv(artefact_path, index=False)
+                printInfo(f"[cognitionProcessor] Artefact stats saved to {artefact_path}")
+
+        printInfo("[cognitionProcessor] Computing cognitive indexes...")
+        result, temporal_bands = compute_cognitive_indexes(powerbands)
         if result is None:
-            printError("[cognitionProcessor] compute_engagement_indexes returned None — cannot proceed")
+            printError("[cognitionProcessor] compute_cognitive_indexes returned None — cannot proceed")
             return
+
+        if temporal_bands is not None:
+            os.makedirs(features_dir, exist_ok=True)
+            temporal_bands.to_csv(temporal_bp_path, index=False)
+            printInfo(f"[cognitionProcessor] Temporal band powers saved to {temporal_bp_path}")
 
         result = _simple_resample(result, target_interval=0.5)
 

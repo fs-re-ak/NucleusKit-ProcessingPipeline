@@ -116,12 +116,19 @@ class HermesDataInterface:
         original hardware timestamps.
 
         Searches for a raw EEG file, strips corrupted timestamps, removes
-        saturated electrode values, and assembles the channel layout:
-            AF7       : channel 2 - channel 5 / 2
-            AF8       : channel 1 - channel 5 / 2
-            Temporal  : channel 5 (raw)
-            LeftHemi  : channel 2 (raw)
-            RightHemi : channel 1 - channel 5 (differential)
+        saturated electrode values, and assembles the channel layout using a
+        midpoint re-reference against the T9/T10 differential (EAR_R, col 5):
+
+            AF7       : col2 - col5 / 2  (left frontal, half-referenced)
+            AF8       : col1 - col5 / 2  (right frontal, half-referenced)
+            T9        : -col5 / 2        (left temporal, reference side mirrored)
+            T10       :  col5 / 2        (right temporal, sensing side)
+            LeftHemi  : col2             (raw left hemisphere)
+            RightHemi : col1 - col5      (right hemisphere differential)
+
+        T9 is the hardware reference electrode (left ear) and T10 is the
+        sensing electrode (right ear / EAR_R).  The differential col5 encodes
+        T10 - T9, so after the midpoint split T9 = -col5/2 and T10 = col5/2.
 
         Returns:
             Tuple (timestamps, df) where ``timestamps`` is a 1-D numpy array
@@ -162,10 +169,12 @@ class HermesDataInterface:
         # Remove saturated values (disconnected electrodes)
         data[abs(abs(data) - 187500) < 0.1] = np.nan
 
+        mid_ref = data[:, 5] / 2.0
         df = pd.DataFrame({
-            'AF7':      data[:, 2] - data[:, 5] / 2,
-            'AF8':      data[:, 1] - data[:, 5] / 2,
-            'Temporal': data[:, 5],
+            'AF7':      data[:, 2] - mid_ref,
+            'AF8':      data[:, 1] - mid_ref,
+            'T9':      -mid_ref,               # left temporal (reference mirrored)
+            'T10':      mid_ref,               # right temporal (sensing side)
             'LeftHemi': data[:, 2],
             'RightHemi': data[:, 1] - data[:, 5],
         })
