@@ -9,6 +9,7 @@ from PySide6.QtWidgets import QApplication, QMainWindow, QStackedWidget
 
 from nucleuskit_pipeline.ui.pages.channel_fixer_page import ChannelFixerPage
 from nucleuskit_pipeline.ui.pages.channel_gain_page import ChannelGainPage
+from nucleuskit_pipeline.ui.pages.eeg_regression_page import EegRegressionPage
 from nucleuskit_pipeline.ui.pages.main_menu import MainMenuPage
 from nucleuskit_pipeline.ui.pages.mqtt_controller_page import MqttControllerPage
 from nucleuskit_pipeline.ui.pages.offline_page import OfflinePage
@@ -37,6 +38,7 @@ class MainWindow(QMainWindow):
         self._channel_gain = ChannelGainPage()
         self._revert_original = RevertOriginalPage()
         self._ppg_fixer = PpgFixerPage()
+        self._eeg_regression = EegRegressionPage()
         self._settings = SettingsPage()
         self._realtime = RealtimeViewerPage()
         self._playback = PlaybackPage()
@@ -49,6 +51,7 @@ class MainWindow(QMainWindow):
         self._stack.addWidget(self._channel_gain)
         self._stack.addWidget(self._revert_original)
         self._stack.addWidget(self._ppg_fixer)
+        self._stack.addWidget(self._eeg_regression)
         self._stack.addWidget(self._settings)
         self._stack.addWidget(self._realtime)
         self._stack.addWidget(self._playback)
@@ -72,6 +75,8 @@ class MainWindow(QMainWindow):
         self._channel_gain.go_tools_menu.connect(lambda: self._stack.setCurrentWidget(self._tools))
         self._revert_original.go_tools_menu.connect(lambda: self._stack.setCurrentWidget(self._tools))
         self._ppg_fixer.go_tools_menu.connect(lambda: self._stack.setCurrentWidget(self._tools))
+        self._tools.open_eeg_regression.connect(lambda: self._stack.setCurrentWidget(self._eeg_regression))
+        self._eeg_regression.go_tools_menu.connect(lambda: self._stack.setCurrentWidget(self._tools))
 
         self._offline.go_main_menu.connect(lambda: self._stack.setCurrentWidget(self._menu))
         self._settings.go_main_menu.connect(lambda: self._stack.setCurrentWidget(self._menu))

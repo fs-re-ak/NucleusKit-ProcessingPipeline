@@ -179,3 +179,66 @@ class HermesDataInterface:
             'RightHemi': data[:, 1] - data[:, 5],
         })
         return timestamps, df
+
+    def getReferenceChannels(self):
+        """
+        Load the four EMG reference channels that are recorded by the hardware
+        but not used for EEG derivation.
+
+        These channels share the same noise sources as the EEG channels (temporalis
+        muscle via CHEEK_R/CHEEK_L, frontal muscle via BROW_L, and broadband
+        common-mode noise via NOSE) and serve as regressors for noise removal.
+
+        Raw column mapping (0-indexed after stripping the timestamp column):
+            CHEEK_R  → col 2  (right cheek EMG)
+            CHEEK_L  → col 3  (left cheek EMG)
+            BROW_L   → col 6  (left brow EMG)
+            NOSE     → col 7  (nose common reference)
+
+        AFz (col 5) is deliberately excluded — it is an EEG channel and
+        regressing it out would remove real brain signal.
+
+        Returns:
+            Tuple (timestamps, ref_df) where ``timestamps`` is a 1-D numpy array
+            (seconds from recording start) and ``ref_df`` is a DataFrame with
+            columns ['CHEEK_R', 'CHEEK_L', 'BROW_L', 'NOSE'].
+            Returns ``(None, None)`` if no data file is found or loading fails.
+        """
+        potentialFilenames = ["rawEEG_0.csv", "eeg.tmp", "eeg.csv", "eegRec_0.csv"]
+        data = None
+
+        for filename in potentialFilenames:
+            filepath = os.path.join(self.recPath, "rawData", filename)
+            if os.path.isfile(filepath):
+                printInfo(f"[HermesDataInterface] getReferenceChannels: loading {filepath}")
+                try:
+                    data = loadtxt_drop_last_if_incomplete(filepath)
+                    break
+                except Exception as e:
+                    printError(f"[HermesDataInterface] getReferenceChannels: failed to load {filename}: {e}")
+
+        if data is None:
+            printError("[HermesDataInterface] getReferenceChannels: no EEG data file found")
+            return None, None
+
+        if data.shape[1] < 9:
+            printError(
+                f"[HermesDataInterface] getReferenceChannels: data has only {data.shape[1]} columns "
+                f"— expected at least 9 (timestamp + 8 EXG channels). Cannot extract reference channels."
+            )
+            return None, None
+
+        timestamps = normalise_timestamps_to_seconds(data[:, 0])
+
+        # Invalidate saturated (disconnected) samples
+        data[abs(abs(data) - 187500) < 0.1] = np.nan
+
+        # Raw columns 3, 4, 7, 8 = CHEEK_R, CHEEK_L, BROW_L, NOSE
+        ref_df = pd.DataFrame({
+            'CHEEK_R': data[:, 3],
+            'CHEEK_L': data[:, 4],
+            'BROW_L':  data[:, 7],
+            'NOSE':    data[:, 8],
+        })
+
+        return timestamps, ref_df

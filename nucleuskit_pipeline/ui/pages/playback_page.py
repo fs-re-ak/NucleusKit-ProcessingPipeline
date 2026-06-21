@@ -60,6 +60,10 @@ _Z_PLAYHEAD = 100.0
 PLAYBACK_ANNOTATIONS_FILENAME = "playback_annotations.json"
 ANNOTATIONS_SCHEMA_VERSION = 1
 
+# Columns to display from Cognition.csv.  Only Engagement is shown for now;
+# Focus, CognitiveLoad, Frontal, and Lateralization are kept for future use.
+COGNITION_COLUMNS: set[str] = {"Engagement"}
+
 # Pens for annotation graphics
 _PEN_POINT = pg.mkPen("#88ccee", width=2)
 _PEN_POINT_SEL = pg.mkPen("#ffcc66", width=3)
@@ -715,9 +719,15 @@ class MetricsPlotWidget(QWidget):
         self._smooth_value_label.setText("Off")
 
         # Prefer emotion column order when emotion columns are present.
+        # For Cognition.csv apply an explicit allowlist so that sessions
+        # processed before the Engagement-only narrowing still show only
+        # the canonical metric.
+        filename = Path(path).name
         emotion_cols = [c for c in EMOTION_COLUMNS if c in df.columns]
         if emotion_cols:
             plot_cols = _ordered_playback_columns(emotion_cols)
+        elif filename == "Cognition.csv":
+            plot_cols = [c for c in df.columns if c in COGNITION_COLUMNS]
         else:
             plot_cols = [c for c in df.columns if c != "Timestamp"]
 

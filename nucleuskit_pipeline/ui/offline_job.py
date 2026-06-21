@@ -83,3 +83,25 @@ def ppg_fixer_preflight(folder: str) -> str | None:
             "first so PPG features are produced."
         )
     return None
+
+
+def eeg_regression_preflight(folder: str) -> str | None:
+    """Return an error message if the folder cannot be used for EEG regression denoising, else None."""
+    if not folder:
+        return "Please select a session folder."
+    folder = os.path.abspath(os.path.expanduser(folder))
+    if not os.path.isdir(folder):
+        return "Session path is not a directory."
+    raw = os.path.join(folder, "rawData")
+    if not os.path.isdir(raw):
+        return (
+            "No rawData subfolder found. Expected a Nucleus-Kit session directory "
+            "with a raw EEG file (rawEEG_0.csv, eeg.csv, eeg.tmp, or eegRec_0.csv)."
+        )
+    eeg_filenames = ["rawEEG_0.csv", "eeg.tmp", "eeg.csv", "eegRec_0.csv"]
+    if not any(os.path.isfile(os.path.join(raw, f)) for f in eeg_filenames):
+        return (
+            "No raw EEG file found in rawData/. "
+            "Expected one of: " + ", ".join(eeg_filenames)
+        )
+    return None
