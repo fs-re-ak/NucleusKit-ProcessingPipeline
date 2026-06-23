@@ -373,4 +373,4 @@ def computeEmotions(recpath):
 def _invalidate_invalid_eeg_samples(eeg_data):
     """Invalidate disconnected or invalid EEG samples by setting them to NaN."""
     eeg_data[np.isclose(abs(eeg_data), DISCONNECT_VALUE, atol=1)] = np.nan
-    eeg_data[np.isclose(abs(eeg_data), 0, atol=1)] = np.nan
+    # eeg_data[np.isclose(abs(eeg_data), 0, atol=1)] = np.nan

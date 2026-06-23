@@ -515,6 +515,7 @@ class RealtimeViewerPage(QWidget):
         self._disconnect_btn.setEnabled(True)
         self._ear_r_ref_checkbox.setVisible(False)
         self._eeg_plot.set_ear_r_re_reference(False)
+        self._nlms_checkbox.setVisible(False)
         self._shimmer_plot.clear_buffers()
         self._stream_hint.setText("Streaming Shimmer wristband. Use the controls below.")
 
@@ -650,6 +651,8 @@ class RealtimeViewerPage(QWidget):
         self._ear_r_ref_checkbox.setVisible(True)
         self._ear_r_ref_checkbox.setEnabled(True)
         self._eeg_plot.set_ear_r_re_reference(self._ear_r_ref_checkbox.isChecked())
+        self._nlms_checkbox.setVisible(True)
+        self._nlms_checkbox.setEnabled(True)
         self._eeg_plot.clear_buffers()
         self._hermes_motion_plot.clear_buffers()
         self._stream_hint.setText("Streaming EEG and 9-axis motion. Use the controls below.")
@@ -707,10 +710,21 @@ class RealtimeViewerPage(QWidget):
         )
         self._ear_r_ref_checkbox.toggled.connect(self._eeg_plot.set_ear_r_re_reference)
 
+        self._nlms_checkbox = QCheckBox("Adaptive NLMS decorrelation")
+        self._nlms_checkbox.setEnabled(False)
+        self._nlms_checkbox.setToolTip(
+            "Apply causal NLMS adaptive regression after the bandpass filter.\n"
+            "For each channel the other 7 channels act as predictors; weights\n"
+            "are updated only during quiet (low-amplitude) periods.\n"
+            "Unchecking resets all adaptive weights."
+        )
+        self._nlms_checkbox.toggled.connect(self._eeg_plot.set_nlms_filter)
+
         row = QHBoxLayout()
         row.addWidget(self._disconnect_btn)
         row.addWidget(self._rec_btn)
         row.addWidget(self._ear_r_ref_checkbox)
+        row.addWidget(self._nlms_checkbox)
         row.addStretch(1)
 
         col = QVBoxLayout(w)
@@ -814,6 +828,9 @@ class RealtimeViewerPage(QWidget):
         self._ear_r_ref_checkbox.setEnabled(False)
         self._ear_r_ref_checkbox.setChecked(False)
         self._eeg_plot.set_ear_r_re_reference(False)
+        self._nlms_checkbox.setVisible(True)
+        self._nlms_checkbox.setEnabled(False)
+        self._nlms_checkbox.setChecked(False)
         self._rec_btn.setText("Start recording")
         self._plot_stack.setCurrentIndex(0)
         self._stream_hint.setText("Streaming. Use the controls below.")

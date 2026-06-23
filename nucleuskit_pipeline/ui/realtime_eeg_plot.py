@@ -15,6 +15,7 @@ from PySide6.QtWidgets import QVBoxLayout, QWidget
 from scipy.signal import butter, lfilter, lfilter_zi
 
 from nucleuskit_pipeline.hermes.constants import HermesConstants
+from nucleuskit_pipeline.hermes.realtime.nlms_filter import CausalNLMSFilter
 
 pg.setConfigOptions(foreground="k")
 
@@ -45,6 +46,7 @@ class RealtimeEegPlot(QWidget):
         self._apply_filter = apply_filter
         self._ear_r_re_reference = False
         self._ear_r_ch = HermesConstants.CHANNELS["EAR_R"]
+        self._nlms_filter: CausalNLMSFilter | None = None
 
         self._win = pg.GraphicsLayoutWidget(title="Real-time EEG")
         self._plot = self._win.addPlot(title="EEG Channels")
@@ -88,6 +90,25 @@ class RealtimeEegPlot(QWidget):
         if self._apply_filter and self._b is not None and self._a is not None:
             self._filter_states = [lfilter_zi(self._b, self._a) * 0 for _ in range(self._nb_channels)]
 
+    def set_nlms_filter(self, enabled: bool) -> None:
+        """Enable or disable the causal NLMS adaptive decorrelation filter.
+
+        Enabling creates a fresh CausalNLMSFilter and resets the bandpass
+        filter states so the transition is clean.  Disabling resets and
+        discards the filter instance.
+        """
+        if enabled:
+            self._nlms_filter = CausalNLMSFilter(
+                n_channels=self._nb_channels,
+                fs=self._sampling_rate,
+            )
+        else:
+            if self._nlms_filter is not None:
+                self._nlms_filter.reset()
+            self._nlms_filter = None
+        if self._apply_filter and self._b is not None and self._a is not None:
+            self._filter_states = [lfilter_zi(self._b, self._a) * 0 for _ in range(self._nb_channels)]
+
     def enqueue_samples(self, samples: np.ndarray) -> None:
         """Thread-safe entry point for producer threads (BLE worker, etc.).
 
@@ -118,11 +139,13 @@ class RealtimeEegPlot(QWidget):
     def add_samples(self, samples: np.ndarray) -> None:
         """Append rows of shape (n, nb_channels) to the scrolling buffers.
 
-        Processes the entire batch at once: one lfilter call per channel, one
-        np.roll per channel, and one setData per channel — regardless of how
-        many samples are in the batch.  This keeps the GUI thread load constant
-        with respect to batch size and avoids the O(n*channels) paint events
-        that the previous per-sample loop generated.
+        Processing is split into three sequential passes so that NLMS (a
+        cross-channel operation) can be inserted cleanly between the per-channel
+        bandpass and the display buffer update:
+
+          Pass 1 — optional EAR_R re-reference + per-channel bandpass
+          Pass 2 — optional NLMS adaptive decorrelation (cross-channel)
+          Pass 3 — scroll display buffers and repaint curves
         """
         if not isinstance(samples, np.ndarray) or samples.ndim != 2 or samples.shape[1] != self._nb_channels:
             return
@@ -130,23 +153,30 @@ class RealtimeEegPlot(QWidget):
         n = samples.shape[0]
         batch = np.array(samples, dtype=np.float64)
 
+        # Pass 1: re-reference then bandpass per channel
         if self._ear_r_re_reference:
             ref = batch[:, self._ear_r_ch : self._ear_r_ch + 1] / 2.0
             batch -= ref
 
-        buf_len = len(self._data_buffers[0])
-
+        filtered = np.empty_like(batch)
         for j in range(self._nb_channels):
             col = batch[:, j]
-
             if self._apply_filter and self._b is not None and self._a is not None:
                 col, self._filter_states[j] = lfilter(self._b, self._a, col, zi=self._filter_states[j])
+            filtered[:, j] = col
 
+        # Pass 2: NLMS adaptive decorrelation (optional, cross-channel)
+        if self._nlms_filter is not None:
+            filtered = self._nlms_filter.push_batch(filtered)
+
+        # Pass 3: update scrolling display buffers
+        buf_len = len(self._data_buffers[0])
+        for j in range(self._nb_channels):
+            col = filtered[:, j]
             buf = self._data_buffers[j]
             if n >= buf_len:
                 buf[:] = col[-buf_len:]
             else:
                 buf[:-n] = buf[n:]
                 buf[-n:] = col
-
             self._curves[j].setData(buf + self._channel_offsets[j])
