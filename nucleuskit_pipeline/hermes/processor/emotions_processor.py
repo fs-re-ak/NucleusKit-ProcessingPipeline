@@ -157,7 +157,7 @@ def _compute_emotions_from_rms_csv(
     generate_report(recpath)
 
 
-def computeEmotions(recpath):
+def computeEmotions(recpath, apply_nlms: bool = True):
     """
     Compute emotions from EMG data using the bundled classifier.
 
@@ -238,6 +238,13 @@ def computeEmotions(recpath):
             return
 
         printInfo(f"[emotionsProcessor] EMG loaded: shape={eeg_data.shape}")
+
+        if apply_nlms:
+            from nucleuskit_pipeline.hermes.realtime.nlms_filter import CausalNLMSFilter
+            printInfo("[emotionsProcessor] Applying NLMS adaptive decorrelation...")
+            _nlms = CausalNLMSFilter(n_channels=8, fs=250.0)
+            eeg_data = _nlms.push_batch(eeg_data)
+            printInfo("[emotionsProcessor] NLMS decorrelation complete")
 
         _invalidate_invalid_eeg_samples(eeg_data)
 

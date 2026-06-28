@@ -14,6 +14,7 @@ import numpy as np
 from PySide6.QtCore import QObject, QSettings, QStandardPaths, Qt, QThread, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
+    QDialog,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -32,6 +33,7 @@ from PySide6.QtWidgets import (
 from nucleuskit_pipeline.hermes.realtime.proxy import HermesBleProxy
 from nucleuskit_pipeline.shimmer import ShimmerSerialProxy
 from nucleuskit_pipeline.ui.realtime_eeg_plot import RealtimeEegPlot
+from nucleuskit_pipeline.ui.realtime_nlms_config_dialog import NlmsPredictorConfigDialog
 from nucleuskit_pipeline.ui.realtime_hermes_motion_plot import RealtimeHermesMotionPlot
 from nucleuskit_pipeline.ui.realtime_shimmer_plot import RealtimeShimmerPlot
 
@@ -516,6 +518,7 @@ class RealtimeViewerPage(QWidget):
         self._ear_r_ref_checkbox.setVisible(False)
         self._eeg_plot.set_ear_r_re_reference(False)
         self._nlms_checkbox.setVisible(False)
+        self._nlms_config_btn.setVisible(False)
         self._shimmer_plot.clear_buffers()
         self._stream_hint.setText("Streaming Shimmer wristband. Use the controls below.")
 
@@ -653,6 +656,8 @@ class RealtimeViewerPage(QWidget):
         self._eeg_plot.set_ear_r_re_reference(self._ear_r_ref_checkbox.isChecked())
         self._nlms_checkbox.setVisible(True)
         self._nlms_checkbox.setEnabled(True)
+        self._nlms_config_btn.setVisible(True)
+        self._nlms_config_btn.setEnabled(True)
         self._eeg_plot.clear_buffers()
         self._hermes_motion_plot.clear_buffers()
         self._stream_hint.setText("Streaming EEG and 9-axis motion. Use the controls below.")
@@ -714,17 +719,25 @@ class RealtimeViewerPage(QWidget):
         self._nlms_checkbox.setEnabled(False)
         self._nlms_checkbox.setToolTip(
             "Apply causal NLMS adaptive regression after the bandpass filter.\n"
-            "For each channel the other 7 channels act as predictors; weights\n"
-            "are updated only during quiet (low-amplitude) periods.\n"
+            "Predictor connectivity can be configured via the button to the right.\n"
             "Unchecking resets all adaptive weights."
         )
         self._nlms_checkbox.toggled.connect(self._eeg_plot.set_nlms_filter)
+
+        self._nlms_config_btn = QPushButton("Configure NLMS predictors…")
+        self._nlms_config_btn.setEnabled(False)
+        self._nlms_config_btn.setToolTip(
+            "Edit which channels are used as predictors for each target channel.\n"
+            "Default: AF8, AF7, and BROW_L do not regress against each other."
+        )
+        self._nlms_config_btn.clicked.connect(self._configure_nlms_predictors)
 
         row = QHBoxLayout()
         row.addWidget(self._disconnect_btn)
         row.addWidget(self._rec_btn)
         row.addWidget(self._ear_r_ref_checkbox)
         row.addWidget(self._nlms_checkbox)
+        row.addWidget(self._nlms_config_btn)
         row.addStretch(1)
 
         col = QVBoxLayout(w)
@@ -733,6 +746,15 @@ class RealtimeViewerPage(QWidget):
         col.addLayout(row)
 
         self._stack.addWidget(w)
+
+    def _configure_nlms_predictors(self) -> None:
+        dialog = NlmsPredictorConfigDialog(
+            self._eeg_plot.nlms_predictor_mask(),
+            parent=self,
+        )
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        self._eeg_plot.set_nlms_predictor_mask(dialog.predictor_mask())
 
     def _request_main_menu(self) -> None:
         if self._connecting:
@@ -831,6 +853,8 @@ class RealtimeViewerPage(QWidget):
         self._nlms_checkbox.setVisible(True)
         self._nlms_checkbox.setEnabled(False)
         self._nlms_checkbox.setChecked(False)
+        self._nlms_config_btn.setVisible(True)
+        self._nlms_config_btn.setEnabled(False)
         self._rec_btn.setText("Start recording")
         self._plot_stack.setCurrentIndex(0)
         self._stream_hint.setText("Streaming. Use the controls below.")

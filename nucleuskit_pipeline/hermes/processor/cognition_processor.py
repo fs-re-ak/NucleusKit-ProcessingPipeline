@@ -821,7 +821,7 @@ def _simple_resample(df, target_interval=0.5):
 # Pipeline entry point
 # ---------------------------------------------------------------------------
 
-def computeCognitiveIndexes(recpath):
+def computeCognitiveIndexes(recpath, apply_nlms: bool = True):
     """
     Compute cognitive indexes from EEG data using the cleaned temporal pipeline.
 
@@ -892,7 +892,13 @@ def computeCognitiveIndexes(recpath):
 
         if powerbands is None:
             printInfo("[cognitionProcessor] Loading EEG data...")
-            original_timestamps, eegData = HermesDataInterface(recpath).getEEG()
+            raw_preprocess_fn = None
+            if apply_nlms:
+                from nucleuskit_pipeline.hermes.realtime.nlms_filter import CausalNLMSFilter
+                _nlms = CausalNLMSFilter(n_channels=8, fs=HermesDataInterface.SAMPLING_RATE)
+                raw_preprocess_fn = _nlms.push_batch
+                printInfo("[cognitionProcessor] NLMS adaptive decorrelation enabled")
+            original_timestamps, eegData = HermesDataInterface(recpath).getEEG(raw_preprocess_fn=raw_preprocess_fn)
 
             if eegData is None:
                 printError("[cognitionProcessor] HermesDataInterface.getEEG returned None — no EEG data available")

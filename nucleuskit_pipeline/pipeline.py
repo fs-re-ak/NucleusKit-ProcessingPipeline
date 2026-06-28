@@ -48,11 +48,12 @@ class NucleusKitProcessingPipeline(BasePipeline):
     Offline analytics pipeline for processing session data from a local folder.
     """
 
-    def __init__(self, configuration=None, *, skip_video_rotation: bool = False):
+    def __init__(self, configuration=None, *, skip_video_rotation: bool = False, apply_nlms: bool = True):
         super().__init__(configuration)
         self.plot_data = False
         self.processingSteps = []
         self._skip_video_rotation = skip_video_rotation
+        self._apply_nlms = apply_nlms
 
         if configuration is None:
             self.configureAsDefault()
@@ -93,6 +94,14 @@ class NucleusKitProcessingPipeline(BasePipeline):
 
         return True
 
+    @staticmethod
+    def _bind(fn, **kwargs):
+        """Wrap a processor function with bound keyword arguments, preserving __name__."""
+        def step(path):
+            return fn(path, **kwargs)
+        step.__name__ = fn.__name__
+        return step
+
     def configureAsDefault(self):
         self.pipeName = "HermesDevPipe"
         self.processingSteps = []
@@ -114,10 +123,10 @@ class NucleusKitProcessingPipeline(BasePipeline):
         self.processingSteps.append(computeArousal)
 
         printInfo("- Adding cognitive metrics computation")
-        self.processingSteps.append(computeCognitiveIndexes)
+        self.processingSteps.append(self._bind(computeCognitiveIndexes, apply_nlms=self._apply_nlms))
 
         printInfo("- Adding emotional metrics computation")
-        self.processingSteps.append(computeEmotions)
+        self.processingSteps.append(self._bind(computeEmotions, apply_nlms=self._apply_nlms))
 
         printInfo("- Adding event processing")
         self.processingSteps.append(eventProcessor)

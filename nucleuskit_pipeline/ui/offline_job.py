@@ -48,6 +48,38 @@ def session_preflight(folder: str) -> str | None:
     return None
 
 
+def dataset_preflight(folder: str) -> tuple[list[str], str | None]:
+    """Return (valid_session_paths, error) for a dataset root folder.
+
+    A valid session subfolder is any direct child directory that contains
+    a rawData/ subdirectory (the same criterion used by session_preflight).
+    The returned paths are sorted alphabetically.
+    """
+    if not folder:
+        return [], "Please select a dataset root folder."
+    folder = os.path.abspath(os.path.expanduser(folder))
+    if not os.path.isdir(folder):
+        return [], "Dataset path is not a directory."
+
+    sessions: list[str] = []
+    try:
+        entries = sorted(os.listdir(folder))
+    except OSError as e:
+        return [], f"Cannot read dataset folder: {e}"
+
+    for entry in entries:
+        candidate = os.path.join(folder, entry)
+        if os.path.isdir(candidate) and os.path.isdir(os.path.join(candidate, "rawData")):
+            sessions.append(candidate)
+
+    if not sessions:
+        return [], (
+            "No session subfolders found. Expected direct child directories "
+            "that each contain a rawData/ subfolder."
+        )
+    return sessions, None
+
+
 def rms_features_preflight(folder: str) -> str | None:
     """Return an error message if RMS feature CSV is missing, else None."""
     if not folder:

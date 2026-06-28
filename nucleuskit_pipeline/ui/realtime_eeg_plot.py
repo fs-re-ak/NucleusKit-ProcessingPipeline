@@ -15,7 +15,10 @@ from PySide6.QtWidgets import QVBoxLayout, QWidget
 from scipy.signal import butter, lfilter, lfilter_zi
 
 from nucleuskit_pipeline.hermes.constants import HermesConstants
-from nucleuskit_pipeline.hermes.realtime.nlms_filter import CausalNLMSFilter
+from nucleuskit_pipeline.hermes.realtime.nlms_filter import (
+    CausalNLMSFilter,
+    build_default_predictor_mask,
+)
 
 pg.setConfigOptions(foreground="k")
 
@@ -47,6 +50,7 @@ class RealtimeEegPlot(QWidget):
         self._ear_r_re_reference = False
         self._ear_r_ch = HermesConstants.CHANNELS["EAR_R"]
         self._nlms_filter: CausalNLMSFilter | None = None
+        self._nlms_predictor_mask = build_default_predictor_mask(nb_channels)
 
         self._win = pg.GraphicsLayoutWidget(title="Real-time EEG")
         self._plot = self._win.addPlot(title="EEG Channels")
@@ -58,7 +62,17 @@ class RealtimeEegPlot(QWidget):
 
         buffer_size = int(sampling_rate * 5)
         self._data_buffers = [np.zeros(buffer_size) for _ in range(nb_channels)]
-        self._channel_offsets = [100.0 * i for i in range(nb_channels)]
+        # Top-to-bottom on screen: AF8 … NOSE (index 0 at top, index 7 at bottom).
+        self._channel_offsets = [
+            100.0 * (nb_channels - 1 - j) for j in range(nb_channels)
+        ]
+        self._channel_labels: list[pg.TextItem] = []
+        channel_names = HermesConstants.CHANNEL_NAMES[:nb_channels]
+        for j, name in enumerate(channel_names):
+            label = pg.TextItem(name, anchor=(1.0, 0.5), color=pg.intColor(j))
+            label.setPos(-5, self._channel_offsets[j])
+            self._plot.addItem(label)
+            self._channel_labels.append(label)
 
         if apply_filter:
             b, a = _butter_bandpass(lowcut, highcut, fs=sampling_rate, order=order)
@@ -101,6 +115,7 @@ class RealtimeEegPlot(QWidget):
             self._nlms_filter = CausalNLMSFilter(
                 n_channels=self._nb_channels,
                 fs=self._sampling_rate,
+                predictor_mask=self._nlms_predictor_mask.copy(),
             )
         else:
             if self._nlms_filter is not None:
@@ -108,6 +123,22 @@ class RealtimeEegPlot(QWidget):
             self._nlms_filter = None
         if self._apply_filter and self._b is not None and self._a is not None:
             self._filter_states = [lfilter_zi(self._b, self._a) * 0 for _ in range(self._nb_channels)]
+
+    def nlms_predictor_mask(self) -> np.ndarray:
+        """Return a copy of the current NLMS predictor connectivity mask."""
+        return self._nlms_predictor_mask.copy()
+
+    def set_nlms_predictor_mask(self, mask: np.ndarray) -> None:
+        """Update predictor connectivity; restart NLMS if currently enabled."""
+        mask = np.asarray(mask, dtype=bool)
+        if mask.shape != (self._nb_channels, self._nb_channels):
+            raise ValueError(
+                f"predictor mask must be ({self._nb_channels}, {self._nb_channels}), "
+                f"got {mask.shape}"
+            )
+        self._nlms_predictor_mask = mask.copy()
+        if self._nlms_filter is not None:
+            self.set_nlms_filter(True)
 
     def enqueue_samples(self, samples: np.ndarray) -> None:
         """Thread-safe entry point for producer threads (BLE worker, etc.).

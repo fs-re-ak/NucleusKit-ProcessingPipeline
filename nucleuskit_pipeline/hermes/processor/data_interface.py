@@ -110,7 +110,7 @@ class HermesDataInterface:
     def __init__(self, recPath):
         self.recPath = recPath
 
-    def getEEG(self):
+    def getEEG(self, raw_preprocess_fn=None):
         """
         Load and return the EEG data for this recording together with the
         original hardware timestamps.
@@ -168,6 +168,10 @@ class HermesDataInterface:
 
         # Remove saturated values (disconnected electrodes)
         data[abs(abs(data) - 187500) < 0.1] = np.nan
+
+        if raw_preprocess_fn is not None:
+            from nucleuskit_pipeline.hermes.realtime.nlms_filter import nlms_nan_safe
+            data[:, 1:] = nlms_nan_safe(raw_preprocess_fn, data[:, 1:])
 
         mid_ref = data[:, 5] / 2.0
         df = pd.DataFrame({
