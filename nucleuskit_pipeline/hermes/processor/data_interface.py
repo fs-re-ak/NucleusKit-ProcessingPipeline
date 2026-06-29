@@ -105,7 +105,7 @@ def loadEXG(rec_path, re_reference=False):
 
 class HermesDataInterface:
 
-    SAMPLING_RATE = 250  # Hz
+    SAMPLING_RATE = HermesConstants.SAMPLING_RATE
 
     def __init__(self, recPath):
         self.recPath = recPath

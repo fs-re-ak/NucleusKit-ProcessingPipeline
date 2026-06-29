@@ -4,19 +4,12 @@ from __future__ import annotations
 
 import pandas as pd
 
-# Fixed order used by models (index 0..7).
-CANONICAL_CHANNEL_NAMES: tuple[str, ...] = (
-    "AF8",
-    "AF7",
-    "CHEEK_R",
-    "CHEEK_L",
-    "EAR_R",
-    "AFz",
-    "BROW_L",
-    "NOSE",
-)
+from nucleuskit_pipeline.hermes.constants import CHANNEL_NAMES
 
-_CANONICAL_SET = set(CANONICAL_CHANNEL_NAMES)
+# Backward-compatible alias used by UI and channel-fixer imports.
+CANONICAL_CHANNEL_NAMES = CHANNEL_NAMES
+
+_CANONICAL_SET = set(CHANNEL_NAMES)
 
 # Legacy labels -> canonical (keys match typical CSV headers).
 _ALIAS_TO_CANONICAL: dict[str, str] = {
@@ -24,7 +17,7 @@ _ALIAS_TO_CANONICAL: dict[str, str] = {
     "HEAD_L": "AF7",
     "FOREHEAD_L": "AFz",
     "BROW": "BROW_L",
-    **{n: n for n in CANONICAL_CHANNEL_NAMES},
+    **{n: n for n in CHANNEL_NAMES},
 }
 
 
@@ -35,7 +28,7 @@ def _rename_channels(channel_cols: list[str]) -> dict[str, str]:
         if c not in _ALIAS_TO_CANONICAL:
             raise ValueError(
                 f"Unknown RMS channel column {c!r}. "
-                f"Use legacy names (e.g. HEAD_R) or canonical names {list(CANONICAL_CHANNEL_NAMES)}."
+                f"Use legacy names (e.g. HEAD_R) or canonical names {list(CHANNEL_NAMES)}."
             )
         canon = _ALIAS_TO_CANONICAL[c]
         if canon in seen_canon:
@@ -64,9 +57,9 @@ def normalize_rms_dataframe(df: pd.DataFrame) -> pd.DataFrame:
     out = out.rename(columns={ts_src: "Timestamp"})
 
     channel_cols = [c for c in out.columns if c != "Timestamp"]
-    if len(channel_cols) != len(CANONICAL_CHANNEL_NAMES):
+    if len(channel_cols) != len(CHANNEL_NAMES):
         raise ValueError(
-            f"Expected {len(CANONICAL_CHANNEL_NAMES)} channel columns, got {len(channel_cols)}: "
+            f"Expected {len(CHANNEL_NAMES)} channel columns, got {len(channel_cols)}: "
             f"{channel_cols!r}"
         )
 
@@ -77,7 +70,7 @@ def normalize_rms_dataframe(df: pd.DataFrame) -> pd.DataFrame:
             f"After rename, expected exactly {sorted(_CANONICAL_SET)}, got {sorted(present)}"
         )
 
-    return out[["Timestamp"] + list(CANONICAL_CHANNEL_NAMES)]
+    return out[["Timestamp"] + list(CHANNEL_NAMES)]
 
 
 def normalize_rms_channels_dataframe(df: pd.DataFrame) -> pd.DataFrame:
@@ -95,9 +88,9 @@ def normalize_rms_channels_dataframe(df: pd.DataFrame) -> pd.DataFrame:
         out = out.drop(columns=["Timestamp"])
 
     channel_cols = [c for c in out.columns]
-    if len(channel_cols) != len(CANONICAL_CHANNEL_NAMES):
+    if len(channel_cols) != len(CHANNEL_NAMES):
         raise ValueError(
-            f"Expected {len(CANONICAL_CHANNEL_NAMES)} channel columns, got {len(channel_cols)}: "
+            f"Expected {len(CHANNEL_NAMES)} channel columns, got {len(channel_cols)}: "
             f"{channel_cols!r}"
         )
 
@@ -108,7 +101,7 @@ def normalize_rms_channels_dataframe(df: pd.DataFrame) -> pd.DataFrame:
             f"After rename, expected exactly {sorted(_CANONICAL_SET)}, got {sorted(present)}"
         )
 
-    return out[list(CANONICAL_CHANNEL_NAMES)]
+    return out[list(CHANNEL_NAMES)]
 
 
 def _resolve_timestamp_column(df: pd.DataFrame) -> str:

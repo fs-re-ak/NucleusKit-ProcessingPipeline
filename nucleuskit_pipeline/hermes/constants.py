@@ -1,24 +1,39 @@
 """Constants for the Hermes EEG/EMG headset hardware."""
 
+from __future__ import annotations
 
-class HermesConstants(object):
+# ---------------------------------------------------------------------------
+# Hardware acquisition
+# ---------------------------------------------------------------------------
+SAMPLING_RATE: int = 250
+"""EEG/EMG acquisition rate in Hz."""
 
-    SAMPLING_RATE = 250
-    SAMPLING_PERIOD = (1/SAMPLING_RATE)
+DISCONNECT_VALUE: float = 187500.0
+"""Raw ADC saturation value indicating an electrode disconnect."""
 
-    CHANNELS = {"AF8": 0, "AF7": 1, "CHEEK_R": 2, "CHEEK_L": 3, "EAR_R": 4, "AFz": 5, "BROW_L": 6, "NOSE": 7}
-    CHANNEL_NAMES = list(CHANNELS.keys())
+# ---------------------------------------------------------------------------
+# Channel layout (canonical electrode names, index 0..7)
+# ---------------------------------------------------------------------------
+CHANNEL_NAMES: tuple[str, ...] = (
+    "AF8",
+    "AF7",
+    "CHEEK_R",
+    "CHEEK_L",
+    "EAR_R",
+    "AFz",
+    "BROW_L",
+    "NOSE",
+)
 
-    EMG_CHANNELS = [0, 1, 2, 3, 4, 5, 6, 7]
-    EEG_CHANNELS = [0, 1, 4, 5]
+CHANNELS: dict[str, int] = {name: i for i, name in enumerate(CHANNEL_NAMES)}
+N_CHANNELS: int = len(CHANNEL_NAMES)
 
-    POWER_BANDS = {"Delta": 0, "Theta": 1, "Alpha": 2, "Beta": 3, "Gamma": 4}
-    NB_BANDS = len(POWER_BANDS)
-    BANDS_DEFINITIONS = [[0, 4],
-                         [4, 8],
-                         [8, 13],
-                         [13, 22],
-                         [30, 50]]
 
-    POWER_BANDS_DEFAULT_WINDOW = 5 * SAMPLING_RATE
-    POWER_BANDS_DEFAULT_OVERLAP = 1 * SAMPLING_RATE
+class HermesConstants:
+    """Backward-compatible namespace for existing ``HermesConstants.*`` imports."""
+
+    SAMPLING_RATE = SAMPLING_RATE
+    CHANNEL_NAMES = list(CHANNEL_NAMES)
+    CHANNELS = CHANNELS
+    N_CHANNELS = N_CHANNELS
+    DISCONNECT_VALUE = DISCONNECT_VALUE
