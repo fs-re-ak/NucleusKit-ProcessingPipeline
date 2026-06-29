@@ -31,7 +31,7 @@ The orchestrator assembles an ordered list of processing steps during `configure
 | 5 | `computeHeartDynamics` | `shimmer/processor/heart.py` | PPG → heart rate, HRV metrics → `results/HeartDynamics.csv` |
 | 6 | `computeArousal` | `shimmer/processor/eda.py` | EDA → tonic/phasic decomposition → `results/Arousal.csv` |
 | 7 | `computeCognitiveIndexes` | `hermes/processor/cognition_processor.py` | EEG → power bands → engagement indexes → `results/Cognition.csv` |
-| 8 | `computeEmotions` | `hermes/processor/emotions_processor.py` | EMG → two-stage classifier → emotion probabilities → `results/Emotions.csv` |
+| 8 | `computeEmotions` | `hermes/processor/emotions_processor/` | EMG → two-stage classifier → emotion probabilities → `results/Emotions.csv` |
 | 9 | `eventProcessor` | `events/processor.py` | Split `rawEvents.csv` into feature and web event CSVs |
 | 10 | `seedPlaybackAnnotations` | `events/eventsProcessor.py` | Generate `features/events/playback_annotations.json` |
 | 11 | `processUWB` | `position/uwb_processor.py` | UWB multilateration → `results/positions.csv` |

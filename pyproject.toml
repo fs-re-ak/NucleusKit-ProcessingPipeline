@@ -41,8 +41,8 @@ where = ["."]
 include = ["nucleuskit_pipeline*"]
 
 [tool.setuptools.package-data]
-"nucleuskit_pipeline.hermes" = ["emotion/classifier/*"]
-"nucleuskit_pipeline.hermes.processorDevelopment.channel_fixer_release" = ["models/*.joblib"]
+"nucleuskit_pipeline.hermes.processor.emotions_processor.models.v12" = ["weights/*"]
+"nucleuskit_pipeline.hermes.tools.channel_fixer" = ["models/*.joblib"]
 "nucleuskit_pipeline.ui.resources.branding" = ["*.png"]
 
 [tool.ruff]

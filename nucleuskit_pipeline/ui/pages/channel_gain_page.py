@@ -33,7 +33,7 @@ from nucleuskit_pipeline.hermes.processor.rms_ops import (
     original_rms_csv,
     working_rms_csv,
 )
-from nucleuskit_pipeline.hermes.dev.channel_fixer.channel_fixer.rms_columns import (
+from nucleuskit_pipeline.hermes.rms_columns import (
     CANONICAL_CHANNEL_NAMES,
     normalize_rms_dataframe,
 )

@@ -16,7 +16,7 @@ def test_import_main_main() -> None:
 
 
 def test_import_channel_fixer() -> None:
-    from nucleuskit_pipeline.hermes.dev.channel_fixer.channel_fixer import (
+    from nucleuskit_pipeline.hermes.tools.channel_fixer.channel_fixer import (
         CANONICAL_CHANNEL_NAMES,
         fix_session,
     )
