@@ -1,4 +1,4 @@
-"""
+﻿"""
 Regression tests for PPG heart-rate processing.
 
 testData/shimmer.csv contains a recording with two distinct amplitude regimes:
@@ -40,11 +40,11 @@ def _load_and_run(tmp_path: Path):
     duration_s : float
         Recording duration in seconds.
     """
-    from nucleuskit_pipeline.shimmer.processor.resampler import (
+    from nucleuskit_toolkit.shimmer.processor.resampler import (
         resample_to_grid,
         normalise_timestamps_to_seconds,
     )
-    from nucleuskit_pipeline.shimmer.processor.heart import (
+    from nucleuskit_toolkit.shimmer.processor.heart import (
         SAMPLING_RATE,
         _UPSAMPLE_RATE,
         apply_ppg_artifact_rejection,

@@ -1,10 +1,10 @@
-"""Tests for headless offline GUI helpers (no Qt)."""
+﻿"""Tests for headless offline GUI helpers (no Qt)."""
 
 from __future__ import annotations
 
 import os
 
-from nucleuskit_pipeline.ui.offline_job import session_preflight
+from nucleuskit_toolkit.ui.offline_job import session_preflight
 
 
 def test_session_preflight_empty() -> None:

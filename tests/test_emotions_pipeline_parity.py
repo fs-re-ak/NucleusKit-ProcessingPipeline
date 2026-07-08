@@ -1,4 +1,4 @@
-"""
+﻿"""
 Parity test: StreamingWindowSource and RmsCsvWindowSource must produce
 identical RMS values when the streaming source first generates the RMS CSV
 that the CSV source then replays.
@@ -17,13 +17,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from nucleuskit_pipeline.hermes.processor.emotions_processor.interface.streaming import (
+from nucleuskit_toolkit.hermes.processor.emotions_processor.interface.streaming import (
     RmsCsvWindowSource,
     StreamingWindowSource,
 )
-from nucleuskit_pipeline.hermes.processor.emotions_processor.models import get_model
-from nucleuskit_pipeline.hermes.processor.emotions_processor.pipeline import run_window_pipeline
-from nucleuskit_pipeline.hermes.processor.emotions_processor.constants import RMS_COLUMNS
+from nucleuskit_toolkit.hermes.processor.emotions_processor.models import get_model
+from nucleuskit_toolkit.hermes.processor.emotions_processor.pipeline import run_window_pipeline
+from nucleuskit_toolkit.hermes.processor.emotions_processor.constants import RMS_COLUMNS
 
 
 _RNG = np.random.default_rng(0)

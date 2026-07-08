@@ -1,1 +1,1 @@
-python -m nucleuskit_pipeline
+python -m nucleuskit_toolkit

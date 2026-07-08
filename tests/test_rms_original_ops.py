@@ -1,11 +1,11 @@
-"""Tests for ``rms_original_ops`` (snapshot, log, revert)."""
+﻿"""Tests for ``rms_original_ops`` (snapshot, log, revert)."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 import pytest
-from nucleuskit_pipeline.hermes.processor.rms_ops import (
+from nucleuskit_toolkit.hermes.processor.rms_ops import (
     append_operation,
     ensure_baseline_snapshot,
     operations_log_path,

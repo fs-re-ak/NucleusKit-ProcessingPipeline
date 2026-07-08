@@ -1,4 +1,4 @@
-"""Tests for POV / JSON config resolution."""
+﻿"""Tests for POV / JSON config resolution."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
-from nucleuskit_pipeline.config import (
+from nucleuskit_toolkit.config import (
     DEFAULT_JSON_NAME,
     LEGACY_JSON_NAME,
     resolve_pov_settings,

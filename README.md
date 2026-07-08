@@ -1,4 +1,4 @@
-# Nucleus-Kit Processing Pipeline
+﻿# Nucleus-Kit Processing Toolkit
 
 Desktop application for **Nucleus-Kit** sessions: **offline** analytics (ingest session folders on disk, run the bundled processing steps, write outputs under each session's `features/` and `results/`), plus real-time streaming, playback review, and MQTT device control. The **offline** pipeline can be run from the GUI or from the command line.
 
@@ -14,7 +14,7 @@ Desktop application for **Nucleus-Kit** sessions: **offline** analytics (ingest 
   - [Top-level folders](#top-level-folders)
   - [rawData/ — typical inputs](#rawdata--typical-inputs)
   - [features/ — notable outputs](#features--notable-outputs)
-  - [results/ — primary pipeline tables](#results--primary-pipeline-tables)
+  - [results/ — primary toolkit tables](#results--primary-pipeline-tables)
 - [Optional POV / ffmpeg configuration](#optional-pov--ffmpeg-configuration)
 - [Technical documentation](#technical-documentation)
 - [Trust and bundled models](#trust-and-bundled-models)
@@ -30,16 +30,16 @@ Desktop application for **Nucleus-Kit** sessions: **offline** analytics (ingest 
 
 ## Main menu (graphical mode)
 
-After `python -m nucleuskit_pipeline`, the home screen offers:
+After `python -m nucleuskit_toolkit`, the home screen offers:
 
 | Item | Purpose |
 |------|---------|
 | **Real-time viewer** | Connect to a Hermes headset over BLE and an optional Shimmer over serial: scan, stream, plot EEG / motion / Shimmer signals, and record into a session-style folder. |
-| **Offline processing** | Pick a session directory and run the full analytics pipeline (log output in the window). |
+| **Offline processing** | Pick a session directory and run the full analytics toolkit (log output in the window). |
 | **Playback mode** | Review a processed session: optional `rawData/video.mp4` plus time-aligned plots from `results/*.csv`, with editable event annotations when available. |
 | **Tools** | Opens a submenu of maintenance utilities (see below). |
 | **MQTT Controller** | Connect to a broker (e.g. Vizia Mobile), discover devices from status traffic, and send recording-related MQTT commands. |
-| **Settings** | Application preferences (theme: light, dark, or system), persisted under **REAK / NucleusKitPipeline** via `QSettings`. |
+| **Settings** | Application preferences (theme: light, dark, or system), persisted under **REAK / NucleusKitToolkit** via `QSettings`. |
 
 ### Tools submenu
 
@@ -86,29 +86,29 @@ pip install ".[dev,gui]"
 **Graphical mode** (main menu above):
 
 ```bash
-python -m nucleuskit_pipeline
+python -m nucleuskit_toolkit
 ```
 
 Requires `pip install ".[gui]"`.
 
-Replace the packaged logo anytime with your own PNG at [`nucleuskit_pipeline/ui/resources/branding/logo.png`](nucleuskit_pipeline/ui/resources/branding/logo.png) (same path in an installed package).
+Replace the packaged logo anytime with your own PNG at [`nucleuskit_toolkit/ui/resources/branding/logo.png`](nucleuskit_toolkit/ui/resources/branding/logo.png) (same path in an installed package).
 
 **Headless mode** (automation / CI):
 
 ```bash
-python -m nucleuskit_pipeline --session "D:\path\to\session_folder"
+python -m nucleuskit_toolkit --session "D:\path\to\session_folder"
 ```
 
 Optional POV / ffmpeg JSON (merged after any config files found in the current working directory):
 
 ```bash
-python -m nucleuskit_pipeline --session "D:\path\to\session" --config "D:\path\to\config.json"
+python -m nucleuskit_toolkit --session "D:\path\to\session" --config "D:\path\to\config.json"
 ```
 
 After install, the same entry point is available as:
 
 ```bash
-nucleuskit-pipeline --session "D:\path\to\session_folder"
+nucleuskit-toolkit --session "D:\path\to\session_folder"
 ```
 
 ## Session layout
@@ -150,7 +150,7 @@ Exact filenames vary by firmware and recording path; common patterns include:
 
 Other steps may still write auxiliary artifacts directly under `features/`.
 
-### `results/` — primary pipeline tables
+### `results/` — primary toolkit tables
 
 Written by the default offline pipeline (when the corresponding raw inputs exist):
 
@@ -165,9 +165,10 @@ Playback mode looks for metric CSVs here and, for synchronized video, uses **`ra
 POV movie conversion uses optional settings from, in order:
 
 1. `hermes_standalone_config.json` in the **current working directory** (legacy name, still supported)
-2. `nucleuskit_pipeline_config.json` in the **current working directory** (overrides legacy keys if both exist)
-3. An extra JSON path passed with `--config` (CLI only)
-4. Environment variables: `HERMES_POV_DATA_ROOT`, `HERMES_FFMPEG_DIR`, `HERMES_POV_SCREEN_ID`
+2. `nucleuskit_pipeline_config.json` in the **current working directory** (legacy name, still supported)
+3. `nucleuskit_toolkit_config.json` in the **current working directory** (overrides legacy keys if both exist)
+4. An extra JSON path passed with `--config` (CLI only)
+5. Environment variables: `HERMES_POV_DATA_ROOT`, `HERMES_FFMPEG_DIR`, `HERMES_POV_SCREEN_ID`
 
 The graphical **Offline processing** run uses the same merge rules from the **process working directory** and environment; it does not prompt for a config file path.
 
@@ -175,7 +176,7 @@ JSON keys: `pov_data_root`, `ffmpeg_dir`, `screen_id`.
 
 ## Technical documentation
 
-The [`doc/`](doc/) folder contains detailed technical descriptions of each processing pipeline for traceability and scientific reference:
+The [`doc/`](doc/) folder contains detailed technical descriptions of each processing toolkit for traceability and scientific reference:
 
 | File | Pipeline |
 |------|----------|

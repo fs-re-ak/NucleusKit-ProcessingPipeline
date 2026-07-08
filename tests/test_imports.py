@@ -1,22 +1,22 @@
-"""Smoke test: package imports."""
+﻿"""Smoke test: package imports."""
 
 from __future__ import annotations
 
 
 def test_import_package_version() -> None:
-    import nucleuskit_pipeline
+    import nucleuskit_toolkit
 
-    assert nucleuskit_pipeline.__version__
+    assert nucleuskit_toolkit.__version__
 
 
 def test_import_main_main() -> None:
-    from nucleuskit_pipeline.__main__ import main
+    from nucleuskit_toolkit.__main__ import main
 
     assert callable(main)
 
 
 def test_import_channel_fixer() -> None:
-    from nucleuskit_pipeline.hermes.tools.channel_fixer.channel_fixer import (
+    from nucleuskit_toolkit.hermes.tools.channel_fixer.channel_fixer import (
         CANONICAL_CHANNEL_NAMES,
         fix_session,
     )

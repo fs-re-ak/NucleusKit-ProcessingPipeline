@@ -1,21 +1,21 @@
-# NucleusKit Processing Pipeline — Technical Overview
+﻿# NucleusKit Processing Toolkit — Technical Overview
 
-**Package:** `nucleuskit_pipeline`  
-**Entry point:** `python -m nucleuskit_pipeline` (GUI) or `--session <dir>` (headless CLI)  
+**Package:** `nucleuskit_toolkit`  
+**Entry point:** `python -m nucleuskit_toolkit` (GUI) or `--session <dir>` (headless CLI)  
 **Authors:** Fred Simard — RE-AK Technologies Inc., Winter/Spring 2026
 
 ---
 
 ## 1. Purpose
 
-The NucleusKit Processing Pipeline is an **offline analytics engine** that transforms raw multi-modal recordings produced by a Nucleus-Kit session into a set of clean, time-aligned physiological and cognitive feature files. It is designed to run against a session directory on disk and is idempotent: each step checks whether its outputs already exist and skips re-computation when they are present.
+The NucleusKit Processing Toolkit is an **offline analytics engine** that transforms raw multi-modal recordings produced by a Nucleus-Kit session into a set of clean, time-aligned physiological and cognitive feature files. It is designed to run against a session directory on disk and is idempotent: each step checks whether its outputs already exist and skips re-computation when they are present.
 
 ---
 
 ## 2. Pipeline Orchestrator
 
-**Module:** `nucleuskit_pipeline/pipeline.py`  
-**Class:** `NucleusKitProcessingPipeline`
+**Module:** `nucleuskit_toolkit/pipeline.py`  
+**Class:** `NucleusKitProcessingToolkit`
 
 The orchestrator assembles an ordered list of processing steps during `configureAsDefault()` and executes them sequentially in `processSession(jobDetails)`. Any exception thrown by a single step is caught, logged, and does not abort subsequent steps.
 

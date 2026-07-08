@@ -3,9 +3,9 @@ requires = ["setuptools>=61", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "nucleuskit-pipeline"
+name = "nucleuskit-toolkit"
 version = "0.1.0"
-description = "Nucleus-Kit offline processing pipeline (Hermes EEG/EMG, Shimmer PPG/EDA)"
+description = "Nucleus-Kit offline processing toolkit (Hermes EEG/EMG, Shimmer PPG/EDA)"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -34,21 +34,21 @@ gui = [
 ]
 
 [project.scripts]
-nucleuskit-pipeline = "nucleuskit_pipeline.__main__:main"
+nucleuskit-toolkit = "nucleuskit_toolkit.__main__:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["nucleuskit_pipeline*"]
+include = ["nucleuskit_toolkit*"]
 
 [tool.setuptools.package-data]
-"nucleuskit_pipeline.hermes.processor.emotions_processor.models.v12" = ["weights/*"]
-"nucleuskit_pipeline.hermes.tools.channel_fixer" = ["models/*.joblib"]
-"nucleuskit_pipeline.ui.resources.branding" = ["*.png"]
+"nucleuskit_toolkit.hermes.processor.emotions_processor.models.v12" = ["weights/*"]
+"nucleuskit_toolkit.hermes.tools.channel_fixer" = ["models/*.joblib"]
+"nucleuskit_toolkit.ui.resources.branding" = ["*.png"]
 
 [tool.ruff]
 line-length = 120
 target-version = "py310"
-src = ["nucleuskit_pipeline", "tests"]
+src = ["nucleuskit_toolkit", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]
