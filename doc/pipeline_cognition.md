@@ -1,7 +1,7 @@
 # Cognition Pipeline — EEG-based Cognitive Indexes
 
-**Module:** `nucleuskit_pipeline/hermes/processor/cognition_processor.py`  
-**Entry point:** `computeCognitiveIndexes(recpath)`  
+**Module:** `nucleuskit_toolkit/hermes/processor/cognition_processor.py`  
+**Entry point:** `computeCognitiveIndexes(recpath, apply_nlms=True)`  
 **Primary output:** `results/Cognition.csv`  
 **Authors:** Fred Simard — RE-AK Technologies Inc., Winter 2026
 
@@ -9,12 +9,9 @@
 
 ## 1. Purpose
 
-The cognition pipeline transforms raw EEG signals from the Hermes device into five
-cognitive metrics sampled at 2 Hz. The primary metrics (Engagement, Focus,
-CognitiveLoad) are derived exclusively from the temporal electrodes (T9 and T10),
-following the cleaned pipeline specification in `instructions/EEG_PIPELINE.md`.
-Secondary metrics (Frontal, Lateralization) come from the frontal and hemispheric
-channels and run on the same cleaned signal.
+The cognition pipeline transforms raw EEG signals from the Hermes device into a cognitive engagement metric sampled at 2 Hz. The primary metric (Engagement) is derived exclusively from the temporal electrodes (T9 and T10), following the cleaned pipeline specification in `instructions/EEG_PIPELINE.md`.
+
+> **Deferred metrics:** Focus, CognitiveLoad, Frontal, and Lateralization formulas are implemented in `compute_cognitive_indexes()` but are not emitted in the current output. Their band-power inputs are computed and archived in `features/cognition/temporalBandPowers.csv` for future use.
 
 ---
 
@@ -78,23 +75,37 @@ hardware_invalid = eegData.isna().any(axis=1).to_numpy() | gap_sample_mask
 This mask is used both for artefact rejection (NaN fraction criterion) and for
 power-band window invalidation.
 
-### Step 3 — Bandpass + notch filtering (`bandpass_filter`)
+### Step 3 — Optional NLMS adaptive decorrelation
+
+When `apply_nlms=True` (the default), a `CausalNLMSFilter` is applied to the raw
+8-channel EEG array before the data interface returns it. This causal adaptive
+filter decorrelates cross-channel EMG crosstalk in a streaming-compatible manner and
+is particularly effective during high-amplitude muscle bursts at T9/T10.
+
+To disable, pass `apply_nlms=False` to `computeCognitiveIndexes`.
+
+### Step 4 — Bandpass + notch filtering (`bandpass_filter`)
 
 | Parameter | Value |
 |-----------|-------|
 | Filter type | 4th-order Butterworth |
-| Passband | 0.5–45 Hz |
-| Notch | 60 Hz (Q = 30) |
+| Passband | 0.5–30 Hz |
+| Notch | 60 Hz (Q = 30) — inactive at this highcut |
 | Implementation | Zero-phase `filtfilt` |
+
+The 30 Hz upper cutoff was chosen to cover delta, theta, alpha, and beta bands
+while excluding the 30–45 Hz high-beta / gamma range dominated by temporal muscle
+(EMG) noise at T9/T10. Because the 60 Hz notch frequency lies above the passband,
+the notch has no effect and is effectively disabled.
 
 Any `NaN` or `Inf` values in a channel are linearly interpolated before filtering.
 The filtered array retains the same column names as the input.
 
 **Note:** Statistical z-score outlier removal (which dropped entire rows) has been
-replaced by the epoch-level artefact rejection in Step 4, preserving timeline
+replaced by the epoch-level artefact rejection in Step 5, preserving timeline
 alignment.
 
-### Step 4 — Temporal artefact rejection (`reject_temporal_artefacts`)
+### Step 5 — Temporal artefact rejection (`reject_temporal_artefacts`)
 
 Artefact detection operates on **1-second non-overlapping epochs** (250 samples) on
 **T9 and T10 only**. An epoch is rejected if *either* channel fails *any* of:
@@ -102,9 +113,15 @@ Artefact detection operates on **1-second non-overlapping epochs** (250 samples)
 | Criterion | Threshold | Signal |
 |-----------|-----------|--------|
 | NaN fraction (from `hardware_invalid`) | > 20 % | Raw (pre-filter) |
-| Peak absolute amplitude | > 75 µV | Filtered |
-| Peak-to-peak | > 60 µV | Filtered |
-| P(30–45 Hz) / P(1–45 Hz) via Welch | > 0.30 | Filtered (EMG) |
+| Peak absolute amplitude | > 500 µV | Filtered |
+| Peak-to-peak | > 500 µV | Filtered |
+
+The EMG power-ratio criterion (formerly Criterion 4) was removed because the 30 Hz
+bandpass upper cutoff already excludes the 30–45 Hz muscle noise band from the
+signal, making the ratio uninformative.
+
+All signal metrics are measured for every epoch regardless of pass/fail, so that
+the per-epoch report can be used to calibrate thresholds.
 
 Rejected epochs set the corresponding samples to `True` in `artefact_mask`.
 The final invalid mask combines hardware invalids and artefact-rejected samples:
@@ -117,11 +134,14 @@ At the 2-second analysis window level, any window where more than **25 %** of
 samples are flagged in `combined_invalid` is emitted as an **all-NaN power row**,
 preserving the timeline structure.
 
-Rejection statistics are saved to `features/cognition/artefactStats.csv`.
+Rejection statistics are saved to `features/cognition/artefactStats.csv` and
+per-epoch metrics to `features/cognition/epochMetrics.csv`. A waveform plot with
+artefact regions highlighted is saved to `features/cognition/eegArtefactPlot.png`.
 
-### Step 5 — EEG power band extraction (`compute_eeg_power_bands`)
+### Step 6 — EEG power band extraction (`compute_eeg_power_bands`)
 
-Welch's periodogram is applied in a sliding-window fashion over the filtered signal.
+Power bands are computed on **T9 and T10 only** using Welch's periodogram in a
+sliding-window fashion.
 
 | Parameter | Value |
 |-----------|-------|
@@ -129,7 +149,7 @@ Welch's periodogram is applied in a sliding-window fashion over the filtered sig
 | Window overlap | 75 % |
 | Step size | 0.5 s |
 | Welch segment length (`nperseg`) | min(256, window_samples) |
-| Frequency bands | delta: 0–4 Hz, theta: 4–8 Hz, alpha: 8–13 Hz, beta: 13–22 Hz, gamma: 30–50 Hz |
+| Frequency bands | delta: 0–4 Hz, theta: 4–8 Hz, alpha: 8–13 Hz, beta: 13–22 Hz |
 
 For each window, the **representative timestamp** is the median of the hardware
 timestamps in that window, tracking hardware clock drift robustly.
@@ -137,9 +157,9 @@ timestamps in that window, tracking hardware clock drift robustly.
 Output: long-format DataFrame `[Timestamp, channel, band, power]` saved to
 `features/cognition/powerBands.csv`.
 
-### Step 6 — Cognitive index computation (`compute_cognitive_indexes`)
+### Step 7 — Cognitive index computation (`compute_cognitive_indexes`)
 
-#### Primary metrics — bilateral temporal averages (T9 + T10)
+#### Primary metric — bilateral temporal average (T9 + T10)
 
 For each timestamp the T9 and T10 band powers are averaged:
 
@@ -148,32 +168,19 @@ avg_alpha = mean(T9_alpha, T10_alpha)
 avg_beta  = mean(T9_beta,  T10_beta)
 avg_theta = mean(T9_theta, T10_theta)
 avg_delta = mean(T9_delta, T10_delta)
-avg_gamma = mean(T9_gamma, T10_gamma)
 ```
 
 | Metric | Formula | Reference |
 |--------|---------|-----------|
 | `Engagement` | `avg_beta / (avg_alpha + avg_theta)` | Pope et al. (1995) |
-| `Focus` | `avg_beta / avg_alpha` | — |
-| `CognitiveLoad` | `(avg_theta × avg_beta) / avg_alpha²` | Borghini et al. (2014) |
 
-#### Secondary metrics — frontal and hemispheric channels
-
-```
-Frontal       = mean(β/(α+θ) for AF7,    β/(α+θ) for AF8)
-Lateralization = log(clip(LeftHemi_eng, 1e-12)) − log(clip(RightHemi_eng, 1e-12))
-```
-
-where `LeftHemi_eng` and `RightHemi_eng` are the per-channel engagement ratios
-`β / (α + θ)` on the raw hemispheric channels.
-
-`NaN` windows from Step 5 propagate through all arithmetic and appear as `NaN`
+`NaN` windows from Step 6 propagate through all arithmetic and appear as `NaN`
 in every metric.
 
 Bilateral temporal band averages and relative powers are saved separately to
 `features/cognition/temporalBandPowers.csv` (not included in `Cognition.csv`).
 
-### Step 7 — Resampling to 2 Hz (`_simple_resample`)
+### Step 8 — Resampling to 2 Hz (`_simple_resample`)
 
 The per-window timestamps (≈ 0.5 s steps, jittered by hardware clock drift) are
 snapped onto a strict 0.5 s grid via `numpy.interp`. Output points that fall
@@ -186,7 +193,7 @@ entirely within a `NaN` gap are set to `NaN` rather than being interpolated thro
 | Condition | Behaviour |
 |-----------|-----------|
 | `results/Cognition.csv` exists | Entire step skipped |
-| `features/cognition/powerBands.csv` exists and contains T9/T10 channels | Band powers loaded from cache; Steps 1–5 skipped |
+| `features/cognition/powerBands.csv` exists and contains T9/T10 channels | Band powers loaded from cache; Steps 1–6 skipped |
 | `powerBands.csv` exists but uses old channel layout (missing T9/T10) | Cache invalidated; full recomputation |
 | Neither file exists | Full pipeline from Step 1 |
 
@@ -205,18 +212,14 @@ The pipeline detects this and automatically recomputes — simply delete the exi
 |--------|-------------|-------------|
 | `Timestamp` | seconds | Seconds from recording start, 0.5 s steps |
 | `Engagement` | dimensionless ratio | Bilateral temporal β / (α + θ) |
-| `Focus` | dimensionless ratio | Bilateral temporal β / α |
-| `CognitiveLoad` | dimensionless ratio | Bilateral temporal (θ × β) / α² |
-| `Frontal` | dimensionless ratio | Mean frontal (AF7, AF8) β / (α + θ) |
-| `Lateralization` | log-ratio | log(LeftHemi_eng) − log(RightHemi_eng) |
 
 ### `features/cognition/powerBands.csv`
 
 | Column | Description |
 |--------|-------------|
 | `Timestamp` | Window median hardware timestamp (s) |
-| `channel` | EEG channel (AF7, AF8, T9, T10, LeftHemi, RightHemi) |
-| `band` | Frequency band (delta / theta / alpha / beta / gamma) |
+| `channel` | EEG channel (T9, T10) |
+| `band` | Frequency band (delta / theta / alpha / beta) |
 | `power` | Spectral power (µV²), or `NaN` for invalidated windows |
 
 ### `features/cognition/artefactStats.csv`
@@ -231,17 +234,38 @@ Single-row summary of the epoch-level artefact rejection:
 | `n_rejected_by_nan` | Rejections triggered by NaN fraction |
 | `n_rejected_by_peak_amp` | Rejections triggered by peak amplitude |
 | `n_rejected_by_ptp` | Rejections triggered by peak-to-peak |
-| `n_rejected_by_emg_ratio` | Rejections triggered by EMG power ratio |
 | `n_samples_flagged` | Total samples in rejected epochs |
 | `pct_samples_flagged` | Percentage of total samples flagged |
+
+### `features/cognition/epochMetrics.csv`
+
+Per-epoch metrics for threshold calibration — one row per 1-second epoch:
+
+| Column | Description |
+|--------|-------------|
+| `epoch_idx` | Epoch index (0-based) |
+| `time_s` | Start time of epoch (seconds) |
+| `nan_frac` | Fraction of hardware-invalid samples |
+| `T9_peak_amp` | Peak absolute amplitude on T9 (µV) |
+| `T10_peak_amp` | Peak absolute amplitude on T10 (µV) |
+| `T9_ptp` | Peak-to-peak on T9 (µV) |
+| `T10_ptp` | Peak-to-peak on T10 (µV) |
+| `rejected` | Whether the epoch was rejected (bool) |
+| `cause` | First criterion that triggered rejection (`nan` / `peak_amp` / `ptp`) |
+| `rejecting_channel` | Channel that caused rejection |
 
 ### `features/cognition/temporalBandPowers.csv`
 
 Bilateral temporal band averages and relative powers (features only, not in
 `Cognition.csv`):
 
-`Timestamp, avg_beta, avg_alpha, avg_theta, avg_delta, avg_gamma, all_power,
-rel_beta, rel_alpha, rel_theta, rel_delta, rel_gamma`
+`Timestamp, avg_beta, avg_alpha, avg_theta, avg_delta, all_power,
+rel_beta, rel_alpha, rel_theta, rel_delta`
+
+### `features/cognition/eegArtefactPlot.png`
+
+Waveform plot of the filtered EEG with artefact-rejected regions highlighted in
+translucent red. Saved only if it does not already exist (re-delete to regenerate).
 
 ---
 
@@ -260,13 +284,12 @@ continues to the next pipeline step.
 |----------|-------|---------|
 | `GAP_THRESHOLD_S` | 5.0 s | `cognition_processor.py` |
 | `HermesDataInterface.SAMPLING_RATE` | 250 Hz | `data_interface.py` |
-| Bandpass passband | 0.5–45 Hz | `bandpass_filter` |
-| Notch frequency | 60 Hz | `bandpass_filter` |
+| Bandpass passband | 0.5–30 Hz | `bandpass_filter` |
+| Notch frequency | 60 Hz (inactive) | `bandpass_filter` |
 | Artefact epoch length | 1 s (250 samples) | `reject_temporal_artefacts` |
 | NaN fraction threshold | 20 % | `reject_temporal_artefacts` |
-| Peak amplitude threshold | 75 µV | `reject_temporal_artefacts` |
-| Peak-to-peak threshold | 60 µV | `reject_temporal_artefacts` |
-| EMG ratio threshold | 0.30 | `reject_temporal_artefacts` |
+| Peak amplitude threshold | 500 µV | `reject_temporal_artefacts` |
+| Peak-to-peak threshold | 500 µV | `reject_temporal_artefacts` |
 | Window invalidation threshold | > 25 % flagged samples | `compute_eeg_power_bands` |
 | Welch window | 2 s | `compute_eeg_power_bands` |
 | Welch overlap | 75 % | `compute_eeg_power_bands` |

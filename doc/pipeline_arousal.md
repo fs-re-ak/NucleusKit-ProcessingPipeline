@@ -1,6 +1,6 @@
 # Arousal Pipeline — Shimmer EDA / GSR Processing
 
-**Module:** `nucleuskit_pipeline/shimmer/processor/eda.py`  
+**Module:** `nucleuskit_toolkit/shimmer/processor/eda.py`  
 **Entry point:** `computeArousal(recPath)`  
 **Primary output:** `results/Arousal.csv`  
 **Authors:** Fred Simard — RE-AK Technologies Inc., Winter 2026

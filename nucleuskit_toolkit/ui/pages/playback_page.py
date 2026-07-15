@@ -8,6 +8,8 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
+from nucleuskit_toolkit.camera import ensure_video_faststart
+
 # Prefer PySide6 before pyqtgraph loads a different Qt binding.
 os.environ.setdefault("PYQTGRAPH_QT_LIB", "PySide6")
 
@@ -1328,6 +1330,7 @@ class PlaybackPage(QWidget):
         self._player.stop()
         if self._has_video:
             self._set_video_pane_visible(True)
+            ensure_video_faststart(session_dir)
             url = QUrl.fromLocalFile(str(Path(video_path).resolve()))
             self._player.setSource(url)
         else:

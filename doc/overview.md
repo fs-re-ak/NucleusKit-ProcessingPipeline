@@ -68,7 +68,11 @@ A processed session folder has the following canonical structure:
 │   │   ├── eda_overview.png            # EDA, tonic component, SCR events
 │   │   └── SCR_events.csv              # Discrete SCR event timestamps and amplitudes
 │   ├── cognition/
-│   │   └── powerBands.csv              # Per-window, per-channel, per-band EEG power
+│   │   ├── powerBands.csv              # Per-window T9/T10 band powers (long format)
+│   │   ├── temporalBandPowers.csv      # Bilateral temporal band averages + relative powers
+│   │   ├── artefactStats.csv           # Epoch-level artefact rejection summary
+│   │   ├── epochMetrics.csv            # Per-epoch signal metrics for threshold calibration
+│   │   └── eegArtefactPlot.png         # Filtered EEG waveform with rejected regions highlighted
 │   ├── emotions/
 │   │   ├── rmsSignals.csv              # Per-window per-channel EMG RMS
 │   │   └── emotionClassifierInputs.csv # L2-normed RMS + classifier predictions
@@ -80,7 +84,7 @@ A processed session folder has the following canonical structure:
 ├── results/                    # Final output files consumed by downstream tools
 │   ├── HeartDynamics.csv       # 2 Hz: mean_hr, mean_nn, sdnn, rmssd, pnn50, cvsd, cvnn
 │   ├── Arousal.csv             # 2 Hz: TonicEDA, PhasicEDA
-│   ├── Cognition.csv           # 2 Hz: Engagement, Intertemporal, Lateralization, Frontal
+│   ├── Cognition.csv           # 2 Hz: Engagement
 │   ├── Emotions.csv            # 2 Hz: Neutral, Happiness, Anger, Surprise, …
 │   ├── gpsDf.csv               # 2 Hz: Latitude, Longitude
 │   └── positions.csv           # 2 Hz: X, Y (UWB)

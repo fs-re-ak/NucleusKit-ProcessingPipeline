@@ -1,6 +1,6 @@
 # Emotions Pipeline — EMG-based Emotion Classification
 
-**Package:** `nucleuskit_pipeline/hermes/processor/emotions_processor/`
+**Package:** `nucleuskit_toolkit/hermes/processor/emotions_processor/`
 **Entry point:** `computeEmotions(recpath)`
 **Primary output:** `results/Emotions.csv`
 **Authors:** Fred Simard — RE-AK Technologies Inc., Winter–Spring 2026
@@ -81,15 +81,40 @@ NULL_WINDOW_NAN_THRESHOLD = 0.10   # 10 % of samples NaN => null window
 
 ## 5. Classifier Architecture
 
-The bundled model lives in `models/v12/weights/`. It is a **two-stage discriminant**:
+The bundled model lives in `models/v12/weights/`. Classification proceeds through
+three layers in order, short-circuiting on the first positive result:
 
-| Stage | Model | Role |
-|-------|-------|------|
-| Stage 1 — Artefact gate | Binary classifier | Distinguishes genuine facial EMG from movement/noise artefacts |
-| Stage 2a — Neutral gate | LDA | Separates neutral from emotional states |
-| Stage 2b — Emotion classifier | LDA / KNN | Multi-class emotion probability estimate |
+| Layer | Model / Source | Role |
+|-------|---------------|------|
+| Pre-stage — AVG_RMS artefact gate | `artefact_config.json` threshold | Rejects high-amplitude movement/noise windows before invoking any classifier |
+| Stage 1 — Neutral gate | `stage1_neutral_detector.pkl` (LDA) | Separates neutral from emotionally active states |
+| Stage 2 — Emotion classifier | `stage2_lda.pkl` + `stage2_knn.pkl` | Multi-class emotion probability estimate |
 
-Model weights are loaded via `TwoStageClassifier.load(clf_dir)`. `cooldown_windows=0` disables the post-prediction cool-down so every window is classified independently.
+### AVG_RMS artefact gate
+
+Before Stage 1 is invoked, the scalar `AVG_RMS` (un-normalised mean RMS across all
+8 channels, the last element of the feature vector) is compared to a threshold
+loaded from `artefact_config.json`:
+
+```json
+{ "threshold": 14.678857, "percentile": 95.0, "scale": 1.0 }
+```
+
+If `AVG_RMS > threshold`, the window is immediately classified as `"Neutral"` with
+confidence 1.0 and all probability mass placed on Neutral. Stage 1 and Stage 2 are
+not consulted. This gate catches gross movement artefacts that would otherwise
+dominate the feature vector.
+
+An optional **post-artefact cooldown** (`cooldown_windows`, default **0** in the
+production pipeline) can be set to reject the next N windows after an artefact
+fires, regardless of their AVG_RMS. With the default of 0, every window is
+evaluated independently (stateless). When cooldown > 0, `reset_artefact_state()`
+must be called between recordings.
+
+The threshold can be overridden at runtime via the `threshold_override` argument to
+`get_model()` without retraining.
+
+Model weights are loaded via `TwoStageClassifier.load(clf_dir)`.
 
 **Feature vector** fed to the model (9 elements):
 
@@ -222,7 +247,7 @@ One row per valid (non-null) classifier window. Columns:
 2. Register it in `models/__init__.py`:
 
 ```python
-from nucleuskit_pipeline.hermes.processor.emotions_processor.models.v13 import V13EmotionModel
+from nucleuskit_toolkit.hermes.processor.emotions_processor.models.v13 import V13EmotionModel
 _REGISTRY["v13"] = V13EmotionModel
 ```
 
@@ -240,11 +265,11 @@ No changes to the pipeline loop or session orchestration are required.
 
 ```
 models/v12/weights/
-├── config.json
-├── feature_columns.json
-├── artefact_config.json
-├── stage1_neutral_detector.pkl   # Artefact gate
-├── stage2_lda.pkl                # Neutral gate (LDA)
+├── config.json                   # Hardware and experiment configuration
+├── feature_columns.json          # Ordered feature column names
+├── artefact_config.json          # AVG_RMS artefact gate threshold (pre-stage)
+├── stage1_neutral_detector.pkl   # Neutral gate (LDA) — Neutral vs Active
+├── stage2_lda.pkl                # Emotion classifier (LDA)
 ├── stage2_knn.pkl                # Emotion classifier (KNN)
 ├── stage2_cov.npy                # Covariance matrix for Mahalanobis distance
 └── label_encoder.pkl

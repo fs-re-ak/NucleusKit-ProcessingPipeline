@@ -1,13 +1,17 @@
 ﻿"""
 Camera and video processing utilities.
 
-Covers two operations that run as part of offline session processing:
+Covers three operations that run as part of offline session processing or
+playback preparation:
 
-1. ``convertPOVMovieClip``  — rename UUID POV file to MKV then re-mux to MP4.
+1. ``convertPOVMovieClip``       — rename UUID POV file to MKV then re-mux to MP4.
 2. ``ensure_session_video_rotated_180`` — rotate rawData/video.mp4 180° in place
    using ffmpeg (idempotent, guarded by a marker file).
+3. ``ensure_video_faststart``    — remux rawData/video.mp4 so the MOOV atom sits at
+   the front of the file (idempotent, guarded by a marker file).  Required for
+   smooth Qt ``QMediaPlayer`` playback of large recordings.
 
-Both functions are thin ffmpeg wrappers; the shared ``_ffmpeg_executable``
+All functions are thin ffmpeg wrappers; the shared ``_ffmpeg_executable``
 helper resolves the binary from either an explicit directory or the system PATH
 (with an optional fallback through the pipeline config).
 
@@ -193,8 +197,8 @@ def ensure_session_video_rotated_180(recpath: str) -> None:
         "-y", "-i", video_path,
         "-vf", "hflip,vflip",
         "-c:v", "libx264",
-        "-preset", "ultrafast",
-        "-crf", "20",
+        "-preset", "medium",
+        "-crf", "23",
         "-movflags", "+faststart",
     ]
 
@@ -233,6 +237,117 @@ def ensure_session_video_rotated_180(recpath: str) -> None:
         printInfo(f"[camera] Rotation complete; wrote marker {marker_path}")
     except OSError as e:
         printWarning(f"[camera] I/O error during rotation: {e}")
+    finally:
+        if os.path.isfile(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+
+
+# ---------------------------------------------------------------------------
+# Session video faststart  (rawData/video.mp4 → MOOV atom at front)
+# ---------------------------------------------------------------------------
+
+_FASTSTART_MARKER_FILENAME = "nucleuskit_video_faststart.json"
+_FASTSTART_MARKER_SCHEMA = "nucleuskit.video_faststart.v1"
+
+
+def ensure_video_faststart(recpath: str) -> None:
+    """
+    Remux ``rawData/video.mp4`` so the MOOV atom is at the front of the file.
+
+    ``QMediaPlayer`` on Windows (Windows Media Foundation backend) requires the
+    MOOV atom at the beginning of the file to seek and buffer large recordings
+    efficiently.  Without it the player must scan the entire file before it can
+    decode any frame — which manifests as audio continuing while the video
+    rendering stalls partway through.
+
+    The remux uses ``-c copy`` (no re-encoding) and therefore completes in
+    seconds regardless of file size.  It is idempotent: if
+    ``rawData/nucleuskit_video_faststart.json`` already exists the function
+    returns immediately.  The rotation marker (``nucleuskit_video_rotated_180.json``)
+    also implies faststart because that step already passes ``-movflags +faststart``;
+    the function short-circuits in that case too.
+
+    If ``video.mp4`` or ffmpeg are absent a warning is logged and the function
+    returns without error.
+
+    Args:
+        recpath: Root directory of the recording session.
+    """
+    recpath = os.path.abspath(recpath)
+    raw_data = os.path.join(recpath, "rawData")
+    faststart_marker = os.path.join(raw_data, _FASTSTART_MARKER_FILENAME)
+    rotation_marker = os.path.join(raw_data, MARKER_FILENAME)
+    video_path = os.path.join(raw_data, VIDEO_BASENAME)
+
+    if os.path.isfile(faststart_marker):
+        printInfo(f"[camera] Faststart marker present ({_FASTSTART_MARKER_FILENAME}); skipping")
+        return
+
+    # Rotation already applies +faststart; no remux needed.
+    if os.path.isfile(rotation_marker):
+        printInfo("[camera] Rotation marker implies faststart already applied; skipping")
+        return
+
+    if not os.path.isdir(raw_data):
+        printWarning(f"[camera] No rawData folder at {raw_data}; skipping faststart")
+        return
+
+    if not os.path.isfile(video_path):
+        printInfo(f"[camera] No {VIDEO_BASENAME} under rawData; nothing to prepare")
+        return
+
+    ffmpeg = _ffmpeg_executable()
+    if not ffmpeg:
+        printWarning(
+            "[camera] ffmpeg not found (configure ffmpeg_dir in "
+            "nucleuskit_toolkit_config.json or add it to PATH); skipping faststart"
+        )
+        return
+
+    tmp_path = os.path.join(raw_data, ".video_faststart_tmp.mp4")
+    printInfo(f"[camera] Applying faststart remux (stream copy): {video_path}")
+
+    try:
+        completed = subprocess.run(
+            [
+                ffmpeg,
+                "-hide_banner", "-loglevel", "error",
+                "-y", "-i", video_path,
+                "-c", "copy",
+                "-movflags", "+faststart",
+                tmp_path,
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        if completed.returncode != 0:
+            err = (completed.stderr or completed.stdout or "").strip()
+            printWarning(f"[camera] ffmpeg faststart failed (exit {completed.returncode}): {err}")
+            return
+
+        if not os.path.isfile(tmp_path) or os.path.getsize(tmp_path) == 0:
+            printWarning("[camera] ffmpeg faststart produced no output; aborting")
+            return
+
+        os.replace(tmp_path, video_path)
+
+        payload = {
+            "schema": _FASTSTART_MARKER_SCHEMA,
+            "media_file": VIDEO_BASENAME,
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+        }
+        with open(faststart_marker, "w", encoding="utf-8") as f:
+            json.dump(payload, f, indent=2)
+            f.write("\n")
+
+        printInfo(f"[camera] Faststart remux complete; wrote marker {faststart_marker}")
+    except OSError as e:
+        printWarning(f"[camera] I/O error during faststart remux: {e}")
     finally:
         if os.path.isfile(tmp_path):
             try:

@@ -2,13 +2,18 @@
 Cognition Processor
 
 Computes cognitive metrics from EEG data using the cleaned temporal pipeline:
-artefact rejection on T9/T10, bilateral temporal band-power averages for primary
-metrics (Engagement, Focus, CognitiveLoad), and frontal/hemispheric channels for
-secondary metrics (Frontal, Lateralization).
+optional NLMS adaptive decorrelation, bandpass filtering (0.5–30 Hz), epoch-level
+artefact rejection on T9/T10 (three criteria), Welch band-power extraction on T9
+and T10, and Engagement computation from bilateral temporal averages.
 
-Feature traceability: per-window EEG band powers are written under the session's
-``features/cognition/`` folder alongside artefact statistics and temporal band
-power averages.
+The current output (``results/Cognition.csv``) emits the Engagement metric only.
+Focus, CognitiveLoad, Frontal, and Lateralization are computed internally but
+deferred — their band-power inputs are archived in
+``features/cognition/temporalBandPowers.csv``.
+
+Feature traceability: per-window EEG band powers, per-epoch artefact metrics, and
+an artefact waveform plot are written under the session's ``features/cognition/``
+folder.
 
 Author(s):
     Fred Simard (fs@re-ak.com), ©RE-AK Technologies Inc.
@@ -828,13 +833,20 @@ def computeCognitiveIndexes(recpath, apply_nlms: bool = True):
     Pipeline steps
     --------------
     1. Load raw EEG; T9/T10 channels derived via midpoint re-reference.
+       Optional NLMS adaptive decorrelation applied when apply_nlms=True (default).
     2. Detect hardware timestamp gaps (≥ 5 s).
-    3. Bandpass + 60 Hz notch filter (0.5–45 Hz).
-    4. Artefact rejection on T9/T10 — 1 s epochs, four signal-quality criteria.
+    3. Bandpass filter (0.5–30 Hz, 4th-order Butterworth zero-phase).
+       60 Hz notch is not active because its frequency exceeds the 30 Hz highcut.
+    4. Artefact rejection on T9/T10 — 1 s epochs, three signal-quality criteria:
+       (1) NaN fraction > 20 %, (2) peak amplitude > 500 µV, (3) ptp > 500 µV.
+       The former EMG power-ratio criterion was removed; the 30 Hz bandpass already
+       excludes the 30–45 Hz muscle noise band.
        Bad epochs → sample mask; > 25 % of a 2 s analysis window flagged → NaN row.
-    5. Welch PSD on all channels (2 s windows, 75 % overlap).
-    6. Compute Engagement / Focus / CognitiveLoad from bilateral T9+T10 averages;
-       Frontal from AF7+AF8; Lateralization from LeftHemi/RightHemi.
+    5. Welch PSD on T9 and T10 only (2 s windows, 75 % overlap).
+       Bands: delta (0–4 Hz), theta (4–8 Hz), alpha (8–13 Hz), beta (13–22 Hz).
+    6. Compute Engagement (bilateral T9+T10 β / (α + θ)) — the sole emitted metric.
+       Focus, CognitiveLoad, Frontal, and Lateralization are computed internally
+       but deferred (not emitted in this release).
     7. Resample to 2 Hz (0.5 s grid).
 
     Incremental caching
@@ -846,13 +858,16 @@ def computeCognitiveIndexes(recpath, apply_nlms: bool = True):
 
     Outputs
     -------
-    - ``results/Cognition.csv``                     — primary cognitive metrics
-    - ``features/cognition/powerBands.csv``         — per-window band powers (long format)
+    - ``results/Cognition.csv``                     — primary cognitive metric (Engagement)
+    - ``features/cognition/powerBands.csv``         — per-window T9/T10 band powers (long format)
     - ``features/cognition/artefactStats.csv``      — epoch-level rejection summary
+    - ``features/cognition/epochMetrics.csv``       — per-epoch signal metrics
     - ``features/cognition/temporalBandPowers.csv`` — bilateral temporal band averages
+    - ``features/cognition/eegArtefactPlot.png``    — filtered EEG waveform with rejected regions
 
     Args:
         recpath: Path to the recording directory.
+        apply_nlms: Apply causal NLMS adaptive decorrelation before filtering (default True).
     """
     printInfo("[cognitionProcessor] Computing Cognitive Indexes")
 

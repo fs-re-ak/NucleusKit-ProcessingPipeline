@@ -1,6 +1,6 @@
 # Heart Dynamics Pipeline — Shimmer PPG Processing
 
-**Module:** `nucleuskit_pipeline/shimmer/processor/heart.py`  
+**Module:** `nucleuskit_toolkit/shimmer/processor/heart.py`  
 **Entry point:** `computeHeartDynamics(recPath)`  
 **Primary output:** `results/HeartDynamics.csv`  
 **Authors:** Fred Simard — RE-AK Technologies Inc., Winter 2026
@@ -208,7 +208,7 @@ To force recomputation, delete `results/HeartDynamics.csv` and optionally the `f
 
 ## 6. Re-running Artifact Rejection Only (`fix_ppg_session`)
 
-`nucleuskit_pipeline/shimmer/processor/ppg_fixer.py` provides `fix_ppg_session(recpath)` as a standalone utility that:
+`nucleuskit_toolkit/shimmer/processor/ppg_fixer.py` provides `fix_ppg_session(recpath)` as a standalone utility that:
 
 1. Loads the existing `ppg_resampled.csv` and its timestamps.
 2. Re-applies `apply_ppg_artifact_rejection` with the current constants.

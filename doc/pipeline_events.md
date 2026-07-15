@@ -9,7 +9,7 @@ This document covers two independent event-processing steps that run sequentiall
 
 ## Part 1 — Event Filtering
 
-**Module:** `nucleuskit_pipeline/events/processor.py`  
+**Module:** `nucleuskit_toolkit/events/processor.py`  
 **Entry point:** `eventProcessor(recPath)`  
 **Authors:** Fred Simard — RE-AK Technologies Inc., Winter 2026
 
@@ -58,7 +58,7 @@ If `rawEvents.csv` is absent or empty, a warning is logged and the step is skipp
 
 ## Part 2 — Playback Annotation Seeding
 
-**Module:** `nucleuskit_pipeline/events/eventsProcessor.py`  
+**Module:** `nucleuskit_toolkit/events/eventsProcessor.py`  
 **Entry point:** `seedPlaybackAnnotations(recPath)`  
 **Authors:** RE-AK Technologies Inc., Spring 2026
 

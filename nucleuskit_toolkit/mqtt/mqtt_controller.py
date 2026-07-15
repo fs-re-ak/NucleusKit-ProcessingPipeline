@@ -2,7 +2,7 @@
 MQTT controller for Vizia Mobile Android devices.
 
 Connects to a user-configured MQTT broker and drives recording sessions via
-the Vizia Mobile MQTT interface (see docs/mqtt_spec.md for the full contract).
+the Vizia Mobile MQTT interface (see doc/mqtt_interface.md for the full contract).
 
 Thread-safety: paho-mqtt runs its own network loop in a background thread.
 All public methods are safe to call from any thread. GUI consumers should

@@ -11,7 +11,7 @@ Both pipelines are optional: if the corresponding raw data file is absent, the s
 
 ## Part 1 — UWB Indoor Positioning
 
-**Module:** `nucleuskit_pipeline/position/uwb_processor.py`  
+**Module:** `nucleuskit_toolkit/position/uwb_processor.py`  
 **Entry point:** `processUWB(basepath)`  
 **Authors:** Fred Simard — RE-AK Technologies Inc., Winter 2026
 
@@ -111,7 +111,7 @@ After all three passes:
 
 ## Part 2 — GPS Positioning
 
-**Module:** `nucleuskit_pipeline/position/gps_processor.py`  
+**Module:** `nucleuskit_toolkit/position/gps_processor.py`  
 **Entry point:** `processGPS(recpath)`  
 **Authors:** Fred Simard — RE-AK Technologies Inc., Winter 2026
 

@@ -142,7 +142,7 @@ Exact filenames vary by firmware and recording path; common patterns include:
 - **`features/metainfo.json`** — session duration and stream presence flags from meta extraction
 - **`features/ppg/`** — PPG intermediate files: `ppg_resampled.csv` (artifact-cleaned signal), `ppg_normalized.csv` (rolling z-score used for peak detection), `ppg_resample_report.txt`, and diagnostic figures `ppg_rejected.png`, `ppg_overview.png`, `ppg_spectrogram.png`
 - **`features/eda/`** — EDA intermediate files: `eda_resampled.csv` (resistance in kΩ), `eda_resample_report.txt`, `eda_overview.png`, and `SCR_events.csv` (discrete skin conductance response events)
-- **`features/cognition/powerBands.csv`** — EEG band powers feeding cognition metrics
+- **`features/cognition/`** — EEG band powers (`powerBands.csv`), bilateral temporal averages (`temporalBandPowers.csv`), epoch-level artefact rejection summary (`artefactStats.csv`), per-epoch signal metrics (`epochMetrics.csv`), and artefact waveform plot (`eegArtefactPlot.png`)
 - **`features/emotions/`** — e.g. `rmsSignals.csv`, `emotionClassifierInputs.csv`, plus `original/` when using RMS editing tools
 - **`features/events/playback_annotations.json`** — point/zone annotations for playback (seeded from `rawData/event.csv` once, then user-editable in the app)
 - **`features/processedFeatureEvents.csv`** / **`features/processedWebFeatureEvents.csv`** — derived from `rawData/rawEvents.csv` when present
@@ -183,10 +183,11 @@ The [`doc/`](doc/) folder contains detailed technical descriptions of each proce
 | [`doc/overview.md`](doc/overview.md) | Pipeline orchestration, step order, session layout, shared 2 Hz timebase |
 | [`doc/pipeline_heart.md`](doc/pipeline_heart.md) | Shimmer PPG → Heart Rate Dynamics (SQI + MAD artifact rejection, NeuroKit2, HRV) |
 | [`doc/pipeline_arousal.md`](doc/pipeline_arousal.md) | Shimmer EDA → Arousal (cvxEDA tonic/phasic decomposition, SCR detection) |
-| [`doc/pipeline_cognition.md`](doc/pipeline_cognition.md) | Hermes EEG → Cognitive Indexes (Welch power bands, engagement metrics) |
-| [`doc/pipeline_emotions.md`](doc/pipeline_emotions.md) | Hermes EMG → Emotion Classification (two-stage LDA/KNN classifier) |
+| [`doc/pipeline_cognition.md`](doc/pipeline_cognition.md) | Hermes EEG → Cognitive Indexes (Welch power bands, epoch-level artefact rejection, Engagement) |
+| [`doc/pipeline_emotions.md`](doc/pipeline_emotions.md) | Hermes EMG → Emotion Classification (AVG_RMS artefact gate, two-stage LDA/KNN classifier) |
 | [`doc/pipeline_events.md`](doc/pipeline_events.md) | Raw Events → Feature / Web Events + Playback Annotations |
 | [`doc/pipeline_positioning.md`](doc/pipeline_positioning.md) | GPS and UWB Indoor Positioning (multilateration) |
+| [`doc/mqtt_interface.md`](doc/mqtt_interface.md) | Vizia Mobile MQTT interface — status, commands, and tags |
 
 ## Trust and bundled models
 
