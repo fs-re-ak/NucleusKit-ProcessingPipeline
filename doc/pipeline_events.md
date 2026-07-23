@@ -23,9 +23,9 @@ Separates the heterogeneous raw event log into two curated subsets:
 
 | File | Location | Format |
 |------|----------|--------|
-| `rawEvents.csv` | `rawData/` | CSV: `[timestamp, event_type, payload, …]` |
+| `rawEvents.csv` | `rawData/` | CSV: `[timestamp, event_type, payload, …]`; header row optional |
 
-Events are loaded via `_loadRawEvents`, which normalises timestamps and handles encoding.
+Events are loaded via `_loadRawEvents`, which normalises timestamps and handles encoding. If the first row's timestamp field is non-numeric it is treated as a header and skipped automatically.
 
 ### 1.3 Classification Logic
 

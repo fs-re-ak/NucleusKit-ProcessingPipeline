@@ -37,6 +37,38 @@ def normalise_timestamps_to_seconds(timestamps):
     return ts - ts[0]
 
 
+def has_text_header(filepath, delimiter=","):
+    """Return True if the first non-empty CSV line cannot be parsed as all-numeric values.
+
+    Used by raw-data loaders to auto-detect an optional header row and skip it,
+    while keeping the same positional column indices for legacy headerless files.
+
+    Parameters
+    ----------
+    filepath : str
+        Path to the CSV file.
+    delimiter : str, optional
+        Column delimiter (default is ',').
+
+    Returns
+    -------
+    bool
+        ``True`` when the first non-empty line contains at least one
+        non-numeric field (i.e. a text header); ``False`` when every field
+        can be parsed as a float (i.e. the file starts with data).
+    """
+    with open(filepath, "r") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                try:
+                    [float(x) for x in line.split(delimiter)]
+                    return False
+                except ValueError:
+                    return True
+    return False
+
+
 def loadtxt_drop_last_if_incomplete(filepath, delimiter=","):
     """
     Load a CSV file into a NumPy array.

@@ -51,8 +51,9 @@ def session_preflight(folder: str) -> str | None:
 def dataset_preflight(folder: str) -> tuple[list[str], str | None]:
     """Return (valid_session_paths, error) for a dataset root folder.
 
-    A valid session subfolder is any direct child directory that contains
-    a rawData/ subdirectory (the same criterion used by session_preflight).
+    A valid session subfolder is any direct child directory that either already
+    contains a rawData/ subdirectory or has recording files at its top level
+    (which are automatically moved into rawData/ by ensure_session_rawdata_layout).
     The returned paths are sorted alphabetically.
     """
     if not folder:
@@ -69,13 +70,17 @@ def dataset_preflight(folder: str) -> tuple[list[str], str | None]:
 
     for entry in entries:
         candidate = os.path.join(folder, entry)
-        if os.path.isdir(candidate) and os.path.isdir(os.path.join(candidate, "rawData")):
+        if not os.path.isdir(candidate):
+            continue
+        ensure_session_rawdata_layout(candidate)
+        raw = os.path.join(candidate, "rawData")
+        if os.path.isdir(raw) and os.listdir(raw):
             sessions.append(candidate)
 
     if not sessions:
         return [], (
             "No session subfolders found. Expected direct child directories "
-            "that each contain a rawData/ subfolder."
+            "containing recording files (or a rawData/ subfolder)."
         )
     return sessions, None
 

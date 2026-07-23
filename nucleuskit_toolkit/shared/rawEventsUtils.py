@@ -64,12 +64,20 @@ def loadRawEvents(recPath, showEvents=False):
         reader = csv.reader(eventsFile)
 
         no_timestamp_header = True
+        first_row = True
 
         for row in reader:
             for i in range(len(row)):
                 row[i] = row[i].strip("'") # patch for ' inserted in Event types, by Vizia
                 row[i] = row[i].lstrip()
                 row[i] = row[i].rstrip()
+
+            if first_row:
+                first_row = False
+                try:
+                    float(row[0])
+                except (ValueError, IndexError):
+                    continue  # header row — skip it
 
             if len(row) > 3:
                 row[2] = ",".join(row[2:len(row)])
@@ -116,12 +124,20 @@ def _loadRawEvents(dataset, showEvents=False):
         reader = csv.reader(eventsFile)
 
         no_timestamp_header = True
+        first_row = True
 
         for row in reader:
             for i in range(len(row)):
                 row[i] = row[i].strip("'") # patch for ' inserted in Event types, by Vizia
                 row[i] = row[i].lstrip()
                 row[i] = row[i].rstrip()
+
+            if first_row:
+                first_row = False
+                try:
+                    float(row[0])
+                except (ValueError, IndexError):
+                    continue  # header row — skip it
 
             if len(row) > 3:
                 row[2] = ",".join(row[2:len(row)])

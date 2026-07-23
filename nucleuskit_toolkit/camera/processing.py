@@ -250,12 +250,13 @@ def ensure_session_video_rotated_180(recpath: str) -> None:
 # ---------------------------------------------------------------------------
 
 _FASTSTART_MARKER_FILENAME = "nucleuskit_video_faststart.json"
-_FASTSTART_MARKER_SCHEMA = "nucleuskit.video_faststart.v1"
+_FASTSTART_MARKER_SCHEMA = "nucleuskit.video_faststart.v2"
 
 
 def ensure_video_faststart(recpath: str) -> None:
     """
-    Remux ``rawData/video.mp4`` so the MOOV atom is at the front of the file.
+    Remux ``rawData/video.mp4`` so the MOOV atom is at the front and the video
+    track timescale is normalised to 30 000 ticks/sec.
 
     ``QMediaPlayer`` on Windows (Windows Media Foundation backend) requires the
     MOOV atom at the beginning of the file to seek and buffer large recordings
@@ -263,12 +264,22 @@ def ensure_video_faststart(recpath: str) -> None:
     decode any frame — which manifests as audio continuing while the video
     rendering stalls partway through.
 
-    The remux uses ``-c copy`` (no re-encoding) and therefore completes in
-    seconds regardless of file size.  It is idempotent: if
-    ``rawData/nucleuskit_video_faststart.json`` already exists the function
-    returns immediately.  The rotation marker (``nucleuskit_video_rotated_180.json``)
-    also implies faststart because that step already passes ``-movflags +faststart``;
-    the function short-circuits in that case too.
+    Some cameras record with a 1 000 000 ticks/sec (microsecond) timescale.
+    Because MP4 stores track timestamps as uint32, a microsecond-timescale file
+    wraps at exactly 2^32 µs = 71 min 35 s, causing WMF to stall video decode
+    at that point while audio continues.  Setting ``-video_track_timescale 30000``
+    rescales all timestamps to 30 000 ticks/sec (stream copy, no quality loss),
+    which pushes the uint32 wrap out to ~39.8 hours.
+
+    The remux uses ``-c copy`` (no re-encoding) and completes in seconds
+    regardless of file size.  The function is idempotent: if
+    ``rawData/nucleuskit_video_faststart.json`` exists **and** carries the
+    current schema version the function returns immediately.  An older v1 marker
+    (faststart without timescale fix) triggers a one-time reprocess.
+
+    The rotation marker (``nucleuskit_video_rotated_180.json``) implies both
+    faststart and a full re-encode, so FFmpeg already resets the timescale; the
+    function short-circuits in that case.
 
     If ``video.mp4`` or ffmpeg are absent a warning is logged and the function
     returns without error.
@@ -283,8 +294,15 @@ def ensure_video_faststart(recpath: str) -> None:
     video_path = os.path.join(raw_data, VIDEO_BASENAME)
 
     if os.path.isfile(faststart_marker):
-        printInfo(f"[camera] Faststart marker present ({_FASTSTART_MARKER_FILENAME}); skipping")
-        return
+        try:
+            with open(faststart_marker, encoding="utf-8") as _f:
+                _marker_data = json.load(_f)
+            if _marker_data.get("schema") == _FASTSTART_MARKER_SCHEMA:
+                printInfo(f"[camera] Faststart marker v2 present ({_FASTSTART_MARKER_FILENAME}); skipping")
+                return
+            printInfo("[camera] Faststart marker is v1 (no timescale fix); reprocessing")
+        except Exception:
+            printInfo("[camera] Faststart marker unreadable; reprocessing")
 
     # Rotation already applies +faststart; no remux needed.
     if os.path.isfile(rotation_marker):
@@ -308,7 +326,7 @@ def ensure_video_faststart(recpath: str) -> None:
         return
 
     tmp_path = os.path.join(raw_data, ".video_faststart_tmp.mp4")
-    printInfo(f"[camera] Applying faststart remux (stream copy): {video_path}")
+    printInfo(f"[camera] Applying faststart remux + timescale normalisation (stream copy): {video_path}")
 
     try:
         completed = subprocess.run(
@@ -317,6 +335,7 @@ def ensure_video_faststart(recpath: str) -> None:
                 "-hide_banner", "-loglevel", "error",
                 "-y", "-i", video_path,
                 "-c", "copy",
+                "-video_track_timescale", "30000",
                 "-movflags", "+faststart",
                 tmp_path,
             ],

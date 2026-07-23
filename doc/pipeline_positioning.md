@@ -128,11 +128,13 @@ Resamples raw GNSS (GPS) location data onto the shared 2 Hz pipeline timebase us
 | `gps.csv` | `rawData/` |
 | `gps.tmp` | `rawData/` |
 
-**Format:** Headerless CSV, three columns:
+**Format:** CSV, three columns (header row optional):
 
 ```
 unix_timestamp_s, latitude_decimal_degrees, longitude_decimal_degrees
 ```
+
+If a header row is present its first cell is non-numeric, and the loader skips it automatically. Legacy headerless files are detected and loaded identically.
 
 Timestamps are absolute Unix epoch seconds. The first timestamp is subtracted to produce session-relative seconds.
 

@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 
 from nucleuskit_toolkit.logging_utils import printInfo, printWarning
+from nucleuskit_toolkit.shared.file_interface import has_text_header
 
 GPS_HDR = "[GPSProcessor] "
 
@@ -52,10 +53,12 @@ def processGPS(recpath):
 
     printInfo(f"{GPS_HDR}Loading {os.path.basename(gps_file)}")
     try:
+        skiprows = 1 if has_text_header(gps_file) else 0
         raw = pd.read_csv(
             gps_file,
             header=None,
             names=["unix_ts", "Latitude", "Longitude"],
+            skiprows=skiprows,
         )
     except Exception as exc:
         printWarning(f"{GPS_HDR}Failed to read GPS file: {exc}")

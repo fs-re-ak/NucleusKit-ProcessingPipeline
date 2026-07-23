@@ -203,28 +203,41 @@ def createFolderStructure(configs, recpath=False):
 
 
 
-def loadCSVAsNumpy(filename, hasHeader=False):
+def loadCSVAsNumpy(filename, hasHeader=None):
     """
     Wrapper over csv to load a float-only csv file into a
     numpy array.
 
     :param filename: path and filename
-    :param hasHeader: True is need to skip header line
+    :param hasHeader: True to always skip the first row; False to never skip
+                      it; None (default) to auto-detect — the first row is
+                      skipped when its first cell cannot be parsed as a float.
     :return: numpy array containing values
     """
 
     data = []
+    _skip_next = None  # resolved on first row
 
     with open(filename, "r") as csvFile:
         reader = csv.reader(csvFile)
 
         for row in reader:
 
-            if hasHeader:
-                hasHeader = False
-            else:
-                data.append([float(x) for x in row])
+            if _skip_next is None:
+                if hasHeader is None:
+                    try:
+                        float(row[0])
+                        _skip_next = False
+                    except (ValueError, IndexError):
+                        _skip_next = True
+                else:
+                    _skip_next = bool(hasHeader)
 
+            if _skip_next:
+                _skip_next = False
+                continue
+
+            data.append([float(x) for x in row])
 
     return np.array(data)
 

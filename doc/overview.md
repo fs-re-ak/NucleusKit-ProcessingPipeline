@@ -131,9 +131,9 @@ This makes the pipeline safe to re-run after partial failures. To force recomput
 
 | Hardware | File(s) | Nominal Rate | Channels used |
 |----------|---------|-------------|---------------|
-| Shimmer | `shimmer.csv` / `rawShimmer_0.csv` | ~51.2 Hz | col 4 = EDA (kΩ), col 5 = PPG |
-| Hermes | `rawEEG_0.csv` / `eeg.tmp` | 250 Hz | col 0 = timestamp, cols 1–8 = EXG |
-| GPS | `gps.csv` / `gps.tmp` | variable | unix_ts, latitude, longitude |
+| Shimmer | `shimmer.csv` / `rawShimmer_0.csv` | ~51.2 Hz | col 0 = timestamp, col 4 = EDA (kΩ), col 5 = PPG; header row optional |
+| Hermes | `rawEEG_0.csv` / `eeg.tmp` | 250 Hz | col 0 = timestamp, cols 1–8 = EXG; header row optional |
+| GPS | `gps.csv` / `gps.tmp` | variable | unix_ts, latitude, longitude; header row optional |
 | UWB | `uwb_0.csv` / `uwb.tmp` | variable | DIST-frame: tag, antenna, distance |
 
 ---

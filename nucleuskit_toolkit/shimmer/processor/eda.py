@@ -25,6 +25,7 @@ from scipy.signal import find_peaks
 from nucleuskit_toolkit.logging_utils import printInfo, printWarning, printError
 from nucleuskit_toolkit.shimmer.vendors.cvxEDA import cvxEDA
 from nucleuskit_toolkit.shimmer.processor.resampler import resample_to_grid, normalise_timestamps_to_seconds
+from nucleuskit_toolkit.shared.file_interface import has_text_header
 
 # -------------------------------------------------------------------
 # Signal constants
@@ -81,7 +82,8 @@ def _load_shimmer_eda_signal(rec_path):
         if not os.path.isfile(path):
             continue
         try:
-            df = pd.read_csv(path, header=None)
+            skiprows = 1 if has_text_header(path) else 0
+            df = pd.read_csv(path, header=None, skiprows=skiprows)
         except Exception:
             continue
         if df.shape[1] <= eda_col:

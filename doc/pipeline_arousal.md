@@ -27,6 +27,8 @@ The arousal pipeline decomposes the raw electrodermal activity (EDA / galvanic s
 Column 0 is the hardware timestamp in milliseconds, normalised to seconds from recording start.  
 `shimmer.csv` / `rawShimmer_0.csv` store the EDA value as **raw GSR resistance in kΩ**. The two-column legacy files (`gsr.tmp`, `gsr.csv`) store the EDA value directly.
 
+A header row is optional in all candidate files. The loader auto-detects it by checking whether the first cell is non-numeric; if so, that row is skipped and positional column indices are applied to the remaining data.
+
 **Nominal sampling rate:** 51.2 Hz
 
 ---

@@ -13,6 +13,7 @@ class ToolsMenuPage(QWidget):
     open_revert_original = Signal()
     open_ppg_fixer = Signal()
     open_eeg_regression = Signal()
+    open_recording_merge = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -39,6 +40,7 @@ class ToolsMenuPage(QWidget):
         col.addWidget(big_button("Revert to original", self.open_revert_original.emit))
         col.addWidget(big_button("PPG Fixer", self.open_ppg_fixer.emit))
         col.addWidget(big_button("EEG Regression Denoising", self.open_eeg_regression.emit))
+        col.addWidget(big_button("Recording Merger", self.open_recording_merge.emit))
 
         outer = QVBoxLayout(self)
         outer.addLayout(top)

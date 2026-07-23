@@ -26,6 +26,8 @@ The heart dynamics pipeline derives time-domain heart rate variability (HRV) met
 
 Column 0 in all files is the hardware timestamp in milliseconds, which is normalised to seconds from recording start by `normalise_timestamps_to_seconds`.
 
+A header row is optional in all candidate files. The loader auto-detects it by checking whether the first cell is non-numeric; if so, that row is skipped and positional column indices are applied to the remaining data.
+
 **Nominal sampling rate:** 51.2 Hz (effective rate may vary slightly due to hardware clock drift)
 
 ---
