@@ -44,9 +44,10 @@ PAGE_STREAM = 3
 
 
 class StreamBridge(QObject):
-    """Marshals EEG rows from BLE worker threads to the GUI thread."""
+    """Marshals EEG rows and status strings from BLE worker threads to the GUI thread."""
 
-    eeg = Signal(object)
+    eeg    = Signal(object)
+    status = Signal(str)   # proxy status messages (connection lost / reconnecting)
 
 
 class ShimmerStreamBridge(QObject):
@@ -632,7 +633,18 @@ class RealtimeViewerPage(QWidget):
                 if w is not None:
                     w.writerow([f"{x:.5f}" for x in sample])
 
-        self._proxy = HermesBleProxy(address, eeg_callback=eeg_cb, motion_callback=motion_cb)
+        # Emit status strings on the bridge so Qt routes them safely to the GUI thread.
+        bridge = self._bridge
+
+        def _status_cb(msg: str) -> None:
+            bridge.status.emit(msg)
+
+        self._proxy = HermesBleProxy(
+            address,
+            eeg_callback=eeg_cb,
+            motion_callback=motion_cb,
+            status_callback=_status_cb,
+        )
 
         self._wait_thread = WaitConnectThread(self._proxy)
         self._wait_thread.done.connect(self._on_connect_done)
@@ -661,6 +673,14 @@ class RealtimeViewerPage(QWidget):
         self._eeg_plot.clear_buffers()
         self._hermes_motion_plot.clear_buffers()
         self._stream_hint.setText("Streaming EEG and 9-axis motion. Use the controls below.")
+
+    def _on_proxy_status(self, msg: str) -> None:
+        """Show a BLE status/reconnect message in the stream hint (GUI thread)."""
+        # Don't overwrite recording-status text while a recording is active.
+        with self._record_lock:
+            recording = self._eeg_writer is not None
+        if not recording:
+            self._stream_hint.setText(msg)
 
     def _on_connect_failed(self, msg: str) -> None:
         self._connecting = False
@@ -694,6 +714,8 @@ class RealtimeViewerPage(QWidget):
         # This removes the high-rate Qt signal that was flooding the event queue.
         self._motion_bridge.motion.connect(self._hermes_motion_plot.add_motion_sample)
         self._shimmer_bridge.sample.connect(self._shimmer_plot.add_sample)
+        # Show BLE reconnect/status messages in the stream hint label.
+        self._bridge.status.connect(self._on_proxy_status)
 
         self._stream_hint = QLabel("Streaming. Use the controls below.")
         self._stream_hint.setProperty("role", "hint")
