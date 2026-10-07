@@ -19,6 +19,17 @@ LABEL_COMPASS = "Compass (x,y,z)"
 # Match EEG scrolling window length (250 Hz * 5 s); motion notify rate varies.
 BUF_LEN = 250 * 5
 
+# Per-mode trace offsets (X / Y / Z) chosen to match the physical data range of
+# each sensor after unit conversion in HermesBleProxy:
+#   Accel  ≈ ±2 g        → 3 g gap keeps traces clearly separated
+#   Gyro   ≈ ±286 dps    → 300 dps gap
+#   Compass≈ ±4.6 gauss  → 5 gauss gap
+_MODE_OFFSETS = [
+    np.array([0.0,   3.0,   6.0],  dtype=np.float64),  # accelerometer (g)
+    np.array([0.0, 300.0, 600.0],  dtype=np.float64),  # gyroscope (dps)
+    np.array([0.0,   5.0,  10.0],  dtype=np.float64),  # magnetometer (gauss)
+]
+
 
 class RealtimeHermesMotionPlot(QWidget):
     """
@@ -29,7 +40,8 @@ class RealtimeHermesMotionPlot(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._buf_len = BUF_LEN
-        self._offsets = np.array([0.0, 100.0, 200.0], dtype=np.float64)
+        # Active offsets are updated whenever the combo selection changes.
+        self._offsets = _MODE_OFFSETS[0].copy()
 
         self._buf_acc = [np.zeros(self._buf_len) for _ in range(3)]
         self._buf_gyr = [np.zeros(self._buf_len) for _ in range(3)]
@@ -76,6 +88,8 @@ class RealtimeHermesMotionPlot(QWidget):
         else:
             self._plot.setTitle(LABEL_COMPASS)
             self._plot.setLabel("left", "Magnetometer (gauss)")
+        # Apply the per-mode offsets so X/Y/Z traces stay visibly separated.
+        self._offsets = _MODE_OFFSETS[index].copy()
         self._redraw_active()
         self._autorange_y()
 
