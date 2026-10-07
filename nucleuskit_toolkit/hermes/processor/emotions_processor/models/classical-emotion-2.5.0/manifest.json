@@ -1,0 +1,48 @@
+{
+  "name": "classical-emotion",
+  "version": "2.5.0",
+  "input": {
+    "channels": [
+      "Supraorbital_L",
+      "Supraorbital_R",
+      "Zygomatic_L",
+      "Zygomatic_R",
+      "Temporal_EEG",
+      "Glabella",
+      "Temporal_R",
+      "Nasolabial"
+    ],
+    "sample_rate_hz": 250,
+    "window_samples": 500
+  },
+  "labels": [
+    "ANGER",
+    "CONTEMPT",
+    "DISGUST",
+    "FEAR",
+    "HAPPINESS",
+    "NEUTRAL",
+    "SADNESS",
+    "SURPRISE"
+  ],
+  "capabilities": {
+    "channels": 8,
+    "window_seconds": 2.0,
+    "sample_rate": 250,
+    "supports_missing_channels": false,
+    "device": [
+      "cpu"
+    ],
+    "median_latency_ms": 0.7871999405324459
+  },
+  "runtime": {
+    "implementation": "exg_emotion.models.classical_v1:ClassicalEmotionModel"
+  },
+  "training": {
+    "dataset_version": "hermes-7ccc7bf4f8e6",
+    "experiment_id": "exp-0040",
+    "git_commit": null,
+    "model_family": "classical_v1"
+  },
+  "released_at": "2026-10-07T04:09:25.307863+00:00"
+}

@@ -11,13 +11,15 @@ Adding a new model:
 from __future__ import annotations
 
 from nucleuskit_toolkit.hermes.processor.emotions_processor.interface.model import EmotionModel
-from nucleuskit_toolkit.hermes.processor.emotions_processor.models.v12 import V12EmotionModel
+from nucleuskit_toolkit.hermes.processor.emotions_processor.models.classical_emotion import (
+    ClassicalEmotionAdapter,
+)
 
 _REGISTRY: dict[str, type[EmotionModel]] = {
-    "v12": V12EmotionModel,
+    "classical-emotion": ClassicalEmotionAdapter,
 }
 
-DEFAULT_MODEL = "v12"
+DEFAULT_MODEL = "classical-emotion"
 
 
 def get_model(name: str | None = None, **kwargs) -> EmotionModel:
@@ -27,10 +29,10 @@ def get_model(name: str | None = None, **kwargs) -> EmotionModel:
     Parameters
     ----------
     name:
-        Registry key (e.g. ``"v12"``).  Defaults to :data:`DEFAULT_MODEL`.
+        Registry key (e.g. ``"classical-emotion"``).  Defaults to
+        :data:`DEFAULT_MODEL`.
     **kwargs:
-        Forwarded to the model's ``load()`` classmethod (e.g.
-        ``weights_dir``, ``cooldown_windows``).
+        Forwarded to the model's ``load()`` classmethod.
     """
     key = name or DEFAULT_MODEL
     if key not in _REGISTRY:

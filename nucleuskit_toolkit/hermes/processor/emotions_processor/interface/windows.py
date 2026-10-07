@@ -21,13 +21,14 @@ class EmotionWindow:
     timestamp: float
     """Representative timestamp for this window (seconds)."""
 
-    channel_rms: np.ndarray | None
-    """Raw per-channel RMS, shape ``(8,)``.  ``None`` when ``is_invalid`` is True."""
+    samples: np.ndarray | None
+    """Filtered EXG window of shape ``(n_channels, n_samples)``.
+    ``None`` when ``is_invalid`` is ``True``."""
 
     is_invalid: bool
     """
-    True when the window contains too many hardware-invalid (NaN) samples and
-    should be emitted as a null row rather than classified.
+    ``True`` when the window contains too many hardware-invalid (NaN) samples
+    and should be emitted as a null row rather than classified.
     """
 
 

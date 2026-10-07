@@ -2,7 +2,8 @@
 Emotions Processor
 
 Computes emotional states from 8-channel surface EMG recorded by the Hermes
-device using a pluggable two-stage classifier.
+device using the classical-emotion 2.5.0 model (logistic regression,
+``extended_nm_a`` feature set, exp-0040).
 
 Public API::
 
@@ -13,16 +14,27 @@ Public API::
 
 Model selection::
 
-    computeEmotions(recpath, model_name="v12")   # default; explicit
+    computeEmotions(recpath)                              # default: classical-emotion
+    computeEmotions(recpath, model_name="classical-emotion")  # explicit
 
 Architecture overview:
 
 - ``constants.py``    — shared constants (EMOTION_COLUMNS, thresholds, …)
 - ``session.py``      — ``computeEmotions()`` orchestration (I/O, incremental logic)
-- ``pipeline.py``     — ``run_window_pipeline()`` — single classification loop
+- ``pipeline.py``     — ``run_window_pipeline()`` — two-pass classification loop
 - ``report.py``       — visual statistics report generator
 - ``interface/``      — ``EmotionModel`` ABC, ``EmotionWindow``, window sources
-- ``models/``         — model registry + per-model implementations (``v12/``, …)
+- ``models/``         — model registry + ``classical_emotion/`` adapter
+
+Signal path::
+
+    raw 8-ch EXG
+        → hardware invalidation (NaN)
+        → 15–40 Hz bandpass (4th-order Butterworth, sosfiltfilt on full recording)
+        → 2.0 s windows, 0.5 s hop (500 samples at 250 Hz)
+        → set_subject_context (per-subject z-score calibration on valid windows)
+        → predict each window (25-D feature vector → logistic regression)
+        → Emotions.csv at 2 Hz
 
 Author(s):
     Fred Simard (fs@re-ak.com), ©RE-AK Technologies Inc.

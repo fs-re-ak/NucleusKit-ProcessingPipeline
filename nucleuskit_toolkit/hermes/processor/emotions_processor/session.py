@@ -1,10 +1,16 @@
 ﻿"""
 computeEmotions — session-level orchestration.
 
-Decides which window source to use (streaming from raw EMG or replay from an
-existing ``rmsSignals.csv``), runs the unified pipeline, and writes the output
-CSVs.  Incremental semantics are preserved: existing output files are never
-overwritten unless they are missing.
+Loads raw EXG, applies hardware-disconnect invalidation, runs the unified
+window pipeline with the classical-emotion 2.5.0 model, and writes the
+output CSVs.  Incremental semantics are preserved: existing output files are
+never overwritten unless they are missing.
+
+NLMS decorrelation is **not** applied to the EXG before emotion inference.
+The classical-emotion 2.5.0 model was trained on bandpass-only windows;
+NLMS costs ~14 percentage-points of LOSO accuracy.  The ``apply_nlms``
+parameter is accepted for backward compatibility with existing callers but
+is silently ignored by this step (cognition processing is unaffected).
 """
 
 from __future__ import annotations
@@ -26,21 +32,11 @@ from nucleuskit_toolkit.hermes.processor.emotions_processor.constants import (
     RMS_COLUMNS,
 )
 from nucleuskit_toolkit.hermes.processor.emotions_processor.interface.streaming import (
-    RmsCsvWindowSource,
     StreamingWindowSource,
 )
 from nucleuskit_toolkit.hermes.processor.emotions_processor.models import get_model
 from nucleuskit_toolkit.hermes.processor.emotions_processor.pipeline import run_window_pipeline
 from nucleuskit_toolkit.hermes.processor.emotions_processor.report import generate_report
-
-
-def _default_weights_dir() -> str:
-    return path.normpath(
-        path.join(
-            path.dirname(path.abspath(__file__)),
-            "models", "v12", "weights",
-        )
-    )
 
 
 def _invalidate_disconnected_samples(eeg_data: np.ndarray) -> None:
@@ -60,19 +56,19 @@ def computeEmotions(
 
     - ``Emotions.csv`` and ``emotionClassifierInputs.csv`` are treated as a
       pair: if either is missing both are recomputed.
-    - ``rmsSignals.csv`` is computed from raw EXG the first time and then
-      never overwritten.  If it already exists when the emotion pair needs
-      recomputing, inference runs from the RMS file (no raw EXG load).
+    - ``rmsSignals.csv`` records the raw per-channel RMS of each 2.0 s window
+      and is recomputed together with the emotion pair.
 
     Parameters
     ----------
     recpath:
         Path to the recording directory.
     apply_nlms:
-        Apply causal NLMS adaptive decorrelation before windowing (streaming
-        path only; ignored when replaying from ``rmsSignals.csv``).
+        Accepted for backward compatibility; **ignored** by the emotion step.
+        The classical-emotion 2.5.0 model must receive bandpass-only EXG.
+        NLMS decorrelation is still applied to cognition processing.
     model_name:
-        Registry key selecting the emotion model (default: ``"v12"``).
+        Registry key selecting the emotion model (default: ``"classical-emotion"``).
     """
     printInfo("[emotionsProcessor] Computing Emotions")
 
@@ -95,63 +91,44 @@ def computeEmotions(
         printInfo("[emotionsProcessor] Will (re)compute Emotions.csv and emotionClassifierInputs.csv")
     if need_rms:
         printInfo("[emotionsProcessor] Will compute rmsSignals.csv")
-    elif have_rms:
-        printInfo("[emotionsProcessor] rmsSignals.csv exists — will not overwrite")
 
-    clf_dir = _default_weights_dir()
-    if not path.isdir(clf_dir):
-        printError(f"[emotionsProcessor] Classifier weights directory not found: {clf_dir}")
-        return
-
-    model = get_model(model_name, weights_dir=clf_dir, cooldown_windows=0)
+    model = get_model(model_name)
     use_hw_timestamps = False
 
     try:
         printInfo(f"[emotionsProcessor] Session: {recpath.split(os.sep)[-1]}")
 
-        if need_pair and have_rms:
-            # Fast path: re-derive emotion probabilities from existing RMS features.
-            printInfo(
-                "[emotionsProcessor] rmsSignals.csv present — computing emotions from RMS file "
-                "(skipping raw EXG)"
+        # Always load raw EXG — RMS-replay is not supported with this model
+        # because subject calibration requires the full filtered recording.
+        result = loadEXG(recpath, re_reference=False)
+        if result is None:
+            printError("[emotionsProcessor] loadEXG returned None — cannot proceed")
+            return
+        timestamps, eeg_data = result
+        if eeg_data is None:
+            printError("[emotionsProcessor] eeg_data is None — cannot proceed")
+            return
+
+        if eeg_data.ndim != 2 or eeg_data.shape[1] != 8:
+            printError(
+                f"[emotionsProcessor] Expected EMG with 8 channels, got shape {eeg_data.shape}"
             )
-            source = RmsCsvWindowSource(features_out)
-        else:
-            # Full path: load raw EXG, filter, window, and compute RMS.
-            result = loadEXG(recpath, re_reference=False)
-            if result is None:
-                printError("[emotionsProcessor] loadEXG returned None — cannot proceed")
-                return
-            timestamps, eeg_data = result
-            if eeg_data is None:
-                printError("[emotionsProcessor] eeg_data is None — cannot proceed")
-                return
+            return
 
-            if eeg_data.ndim != 2 or eeg_data.shape[1] != 8:
-                printError(
-                    f"[emotionsProcessor] Expected EMG with 8 channels, got shape {eeg_data.shape}"
-                )
-                return
+        printInfo(f"[emotionsProcessor] EMG loaded: shape={eeg_data.shape}")
 
-            printInfo(f"[emotionsProcessor] EMG loaded: shape={eeg_data.shape}")
+        # Invalidate hardware-disconnect samples before filtering.
+        _invalidate_disconnected_samples(eeg_data)
 
-            if apply_nlms:
-                from nucleuskit_toolkit.hermes.realtime.nlms_filter import CausalNLMSFilter
-                printInfo("[emotionsProcessor] Applying NLMS adaptive decorrelation...")
-                _nlms = CausalNLMSFilter(n_channels=8, fs=250.0)
-                eeg_data = _nlms.push_batch(eeg_data)
-                printInfo("[emotionsProcessor] NLMS decorrelation complete")
-
-            _invalidate_disconnected_samples(eeg_data)
-            use_hw_timestamps = timestamps is not None
-            source = StreamingWindowSource(eeg_data, timestamps=timestamps)
+        use_hw_timestamps = timestamps is not None
+        source = StreamingWindowSource(eeg_data, timestamps=timestamps)
 
         pipeline_result = run_window_pipeline(source, model)
 
         if not pipeline_result.emotion_rows:
             printError(
                 "[emotionsProcessor] No emotion windows produced — recording may be too short "
-                "for a full 1.0 s window at 250 Hz."
+                "for a full 2.0 s window at 250 Hz."
             )
             return
 

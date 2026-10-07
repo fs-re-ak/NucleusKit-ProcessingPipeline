@@ -1,8 +1,0 @@
-{
-  "threshold": 14.678857,
-  "percentile": 95.0,
-  "scale": 1.0,
-  "percentile_raw_value": 14.678857,
-  "n_active_samples": 935,
-  "derived_from": "Active-class AVG_RMS (augmented training set)"
-}

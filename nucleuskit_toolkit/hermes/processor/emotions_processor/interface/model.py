@@ -3,8 +3,8 @@ Abstract base class for pluggable emotion models.
 
 Every model implementation must subclass :class:`EmotionModel` and implement
 its abstract methods.  The pipeline runner depends only on this interface,
-so swapping V12 for a future model requires nothing more than registering the
-new subclass in ``models/__init__.py``.
+so swapping models requires nothing more than registering the new subclass
+in ``models/__init__.py``.
 """
 
 from __future__ import annotations
@@ -20,19 +20,23 @@ class EmotionWindowResult:
     """Output of one classification window."""
 
     probabilities: dict[str, float]
-    """Per-emotion probability estimates keyed by emotion label."""
+    """Per-emotion probability estimates keyed by title-case emotion label
+    matching :data:`~...constants.EMOTION_COLUMNS`."""
 
     label: str
-    """Winning emotion label (highest probability, after artefact gating)."""
+    """Winning emotion label (title-case, e.g. ``"Happiness"``)."""
 
     confidence: float
     """Probability of the winning label."""
 
     channel_rms: np.ndarray
-    """Raw per-channel RMS values (8 elements, model channel order), before normalisation."""
+    """Raw per-channel RMS (8 elements, Hermes channel order), computed from
+    the filtered window samples before any model-internal normalisation.
+    Written to ``rmsSignals.csv``."""
 
     model_features: np.ndarray
-    """1-D feature vector actually passed to the classifier (L2 RMS + AVG_RMS)."""
+    """1-D feature vector actually passed to the classifier.
+    Written to ``emotionClassifierInputs.csv``."""
 
 
 class EmotionModel(ABC):
@@ -40,25 +44,35 @@ class EmotionModel(ABC):
 
     @classmethod
     @abstractmethod
-    def load(cls, weights_dir: str, **kwargs) -> "EmotionModel":
-        """Load model weights from ``weights_dir`` and return a ready instance."""
+    def load(cls, release_dir: str | None = None, **kwargs) -> "EmotionModel":
+        """Load model from *release_dir* and return a ready instance."""
         ...
 
     @abstractmethod
     def reset(self) -> None:
-        """Reset any internal artefact / cooldown state between recordings."""
+        """Reset any internal calibration / artefact state between recordings."""
         ...
 
-    @abstractmethod
-    def infer_from_rms(self, channel_rms: np.ndarray) -> EmotionWindowResult:
-        """
-        Classify one window given its per-channel RMS.
+    def set_subject_context(self, windows: np.ndarray) -> None:
+        """Calibrate per-subject normalisation stats before inference.
 
         Parameters
         ----------
-        channel_rms:
-            Raw per-channel RMS, shape ``(n_channels,)``.  The model is
-            responsible for any normalisation (e.g. L2 + AVG_RMS).
+        windows:
+            Array of shape ``(n_windows, n_channels, n_samples)`` containing
+            all valid windows from the current recording (already bandpass-
+            filtered, no NaN).  The base implementation is a no-op; subclasses
+            that require calibration must override this.
+        """
+
+    @abstractmethod
+    def predict(self, samples: np.ndarray) -> EmotionWindowResult:
+        """Classify one EXG window.
+
+        Parameters
+        ----------
+        samples:
+            Filtered EXG window of shape ``(n_channels, n_samples)``.
 
         Returns
         -------
@@ -75,5 +89,5 @@ class EmotionModel(ABC):
     @property
     @abstractmethod
     def emotion_labels(self) -> list[str]:
-        """All emotion class labels the model can output."""
+        """All emotion class labels the model can output (title-case)."""
         ...

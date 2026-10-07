@@ -9,7 +9,12 @@
 
 ## 1. Purpose
 
-The emotions pipeline infers moment-to-moment facial emotion probabilities from 8-channel surface EMG recorded by the Hermes device. Classification is performed using a pluggable two-stage machine-learning model. The output is a set of per-emotion probability time-series sampled at 2 Hz.
+The emotions pipeline infers moment-to-moment facial emotion probabilities from
+8-channel surface EMG recorded by the Hermes device.  Classification is
+performed using **classical-emotion 2.5.0** — a logistic-regression model
+trained on the `extended_nm_a` feature set (exp-0040, 24 subjects, 48.2 %
+LOSO accuracy).  The output is a set of per-emotion probability time-series
+sampled at 2 Hz.
 
 ---
 
@@ -20,19 +25,18 @@ hermes/processor/emotions_processor/
 ├── __init__.py          # Public API: computeEmotions, EMOTION_COLUMNS
 ├── constants.py         # Shared constants (thresholds, column lists)
 ├── session.py           # computeEmotions() — orchestration & I/O
-├── pipeline.py          # run_window_pipeline() — single classification loop
+├── pipeline.py          # run_window_pipeline() — two-pass classification loop
 ├── report.py            # Visual statistics report generator
 ├── interface/
 │   ├── model.py         # EmotionModel ABC + EmotionWindowResult dataclass
 │   ├── windows.py       # EmotionWindow dataclass + WindowSource Protocol
-│   └── streaming.py     # StreamingWindowSource, RmsCsvWindowSource
+│   └── streaming.py     # StreamingWindowSource (batch filtfilt)
 └── models/
-    ├── __init__.py      # Model registry: get_model(name)
-    └── v12/
-        ├── model.py     # V12EmotionModel (concrete EmotionModel)
-        ├── inference.py # TwoStageClassifier
-        ├── config.py    # HardwareConfig, ExperimentConfig
-        └── weights/     # *.pkl, *.json — bundled V12 weights
+    ├── __init__.py                 # Model registry: get_model(name)
+    ├── classical_emotion/          # Adapter wrapping the vendored exg_emotion package
+    │   ├── __init__.py
+    │   └── model.py                # ClassicalEmotionAdapter
+    └── classical-emotion-2.5.0/   # Vendored release artifact (pipeline.joblib, exg_emotion/)
 ```
 
 ---
@@ -48,28 +52,34 @@ hermes/processor/emotions_processor/
 | `eeg.csv` | `rawData/` |
 | `eegRec_0.csv` | `rawData/` |
 
-**Format:** Headerless or single-header CSV. Column 0 is the hardware timestamp (milliseconds, auto-normalised). Columns 1–8 are the eight EMG channels, stored in the order defined by `HermesConstants`.
+**Format:** Headerless or single-header CSV.  Column 0 is the hardware
+timestamp (milliseconds, auto-normalised).  Columns 1–8 are the eight EMG
+channels in the order defined by `HermesConstants`.
 
 **Sampling rate:** 250 Hz
 
-**Channel order** (feature-columns.json order used by the classifier):
+**Channel order** (Hermes hardware order = classical-emotion training order):
 
-| Index (0-based) | Channel |
-|-----------------|---------|
-| 0 | AF8 |
-| 1 | AF7 |
-| 2 | CHEEK_R |
-| 3 | CHEEK_L |
-| 4 | EAR_R |
-| 5 | AFz |
-| 6 | BROW_L |
-| 7 | NOSE |
+| Index | Hermes name | Training name |
+|-------|-------------|---------------|
+| 0 | AF8 | Supraorbital_L |
+| 1 | AF7 | Supraorbital_R |
+| 2 | CHEEK_R | Zygomatic_L |
+| 3 | CHEEK_L | Zygomatic_R |
+| 4 | EAR_R | Temporal_EEG |
+| 5 | AFz | Glabella |
+| 6 | BROW_L | Temporal_R |
+| 7 | NOSE | Nasolabial |
+
+The names differ cosmetically; the hardware physical mapping is identical.  No
+channel permutation is applied.
 
 ---
 
 ## 4. Hardware Disconnect Invalidation
 
-Before any processing, samples whose absolute value is within 1 of the hardware saturation value **187 500** are replaced with `NaN`. These represent electrode disconnects or ADC-level saturation events.
+Before any processing, samples whose absolute value is within 1 of the hardware
+saturation value **187 500** are replaced with `NaN`.
 
 ```python
 # constants.py
@@ -81,117 +91,133 @@ NULL_WINDOW_NAN_THRESHOLD = 0.10   # 10 % of samples NaN => null window
 
 ## 5. Classifier Architecture
 
-The bundled model lives in `models/v12/weights/`. Classification proceeds through
-three layers in order, short-circuiting on the first positive result:
+The bundled model lives in `models/classical-emotion-2.5.0/pipeline.joblib`.
 
-| Layer | Model / Source | Role |
-|-------|---------------|------|
-| Pre-stage — AVG_RMS artefact gate | `artefact_config.json` threshold | Rejects high-amplitude movement/noise windows before invoking any classifier |
-| Stage 1 — Neutral gate | `stage1_neutral_detector.pkl` (LDA) | Separates neutral from emotionally active states |
-| Stage 2 — Emotion classifier | `stage2_lda.pkl` + `stage2_knn.pkl` | Multi-class emotion probability estimate |
+| Property | Value |
+|----------|-------|
+| Experiment | exp-0040 |
+| Feature set | `extended_nm_a` (25 features) |
+| Classifier | logistic regression (`C=1.0`, sklearn `StandardScaler`) |
+| Training data | 24 subjects, 1 811 label-matched 2 s windows |
+| LOSO accuracy | 48.2 % ± 12.1 % |
+| LOSO macro F1 | 43.6 % ± 11.2 % |
 
-### AVG_RMS artefact gate
+**25-D feature vector `extended_nm_a`:**
 
-Before Stage 1 is invoked, the scalar `AVG_RMS` (un-normalised mean RMS across all
-8 channels, the last element of the feature vector) is compared to a threshold
-loaded from `artefact_config.json`:
+| Offset | Count | Feature | Normalisation |
+|--------|-------|---------|---------------|
+| 0–7 | 8 | RMS all channels | per-subject z-score |
+| 8–14 | 7 | Waveform length, EMG only (no EAR_R) | per-subject z-score |
+| 15–21 | 7 | Median frequency 20–120 Hz, EMG only | none |
+| 22 | 1 | Zygomatic (L−R)/(L+R) asymmetry | scale-free |
+| 23 | 1 | Envelope corr Glabella × Supraorbital_L | scale-free |
+| 24 | 1 | NM-A (Glabella − Nasolabial)/(Glabella + Nasolabial) | scale-free |
 
-```json
-{ "threshold": 14.678857, "percentile": 95.0, "scale": 1.0 }
-```
-
-If `AVG_RMS > threshold`, the window is immediately classified as `"Neutral"` with
-confidence 1.0 and all probability mass placed on Neutral. Stage 1 and Stage 2 are
-not consulted. This gate catches gross movement artefacts that would otherwise
-dominate the feature vector.
-
-An optional **post-artefact cooldown** (`cooldown_windows`, default **0** in the
-production pipeline) can be set to reject the next N windows after an artefact
-fires, regardless of their AVG_RMS. With the default of 0, every window is
-evaluated independently (stateless). When cooldown > 0, `reset_artefact_state()`
-must be called between recordings.
-
-The threshold can be overridden at runtime via the `threshold_override` argument to
-`get_model()` without retraining.
-
-Model weights are loaded via `TwoStageClassifier.load(clf_dir)`.
-
-**Feature vector** fed to the model (9 elements):
-
-1. L2-normalised per-channel RMS values for each of the 8 EMG channels.
-2. `AVG_RMS`: the un-normalised mean across all 8 channels.
+**Output labels (8-way after CONTEMPT_LEFT / CONTEMPT_RIGHT merge):**
+`ANGER`, `CONTEMPT`, `DISGUST`, `FEAR`, `HAPPINESS`, `NEUTRAL`, `SADNESS`, `SURPRISE`
 
 ---
 
 ## 6. Unified Window Pipeline
 
-All classification paths share a single loop in `pipeline.py`. Window *production* (filtering, windowing, RMS extraction) is separated from *inference* (model feature construction and classification):
-
 ```
-WindowSource  ──────────────────────────────┐
-  StreamingWindowSource (raw EMG)           │   run_window_pipeline()
-  RmsCsvWindowSource (existing rmsSignals)  │   ─────────────────────
-                                            └── for window in source:
-                                                  if invalid → NaN rows
-                                                  else → model.infer_from_rms(rms)
-                                                         → emotion / RMS / input rows
+StreamingWindowSource (raw EMG, already bandpass-filtered)
+    │
+    │  Pass 1 — collect all windows
+    ▼
+run_window_pipeline()
+    │  Calibrate: set_subject_context(valid_windows) — per-subject z-score
+    │
+    │  Pass 2 — classify each window
+    │    if invalid → NaN row
+    │    else → model.predict(samples)
+    │           → EmotionWindowResult
+    ▼
+emotion_rows / rms_rows / model_input_rows
 ```
 
 ### StreamingWindowSource
 
-Accepts pre-loaded EMG `(N, 8)` + optional hardware timestamps. Internally applies a 4th-order Butterworth bandpass (15–45 Hz), maintains a 250-sample ring buffer, and emits one `EmotionWindow` per step (125 samples = 0.5 s). Per-window timestamp is the median of the hardware timestamps in the buffer; falls back to the sample-count clock when hardware timestamps are unavailable. Windows where more than `NULL_WINDOW_NAN_THRESHOLD` of samples were NaN are emitted as invalid windows.
+Accepts pre-loaded, NaN-invalidated EMG `(N, 8)` + optional hardware timestamps.
 
-### RmsCsvWindowSource
+1. Fills NaN positions with 0 (so the filter does not diverge; original NaN
+   flags are preserved).
+2. Applies a 4th-order Butterworth bandpass (15–40 Hz) via `scipy.signal.sosfiltfilt`
+   **on the full recording at once** (zero-phase, no phase lag).
+3. Slides a 500-sample (2.0 s) window over the result in 125-sample (0.5 s)
+   steps, yielding one `EmotionWindow` per hop.  Window timestamp is the
+   median of the hardware timestamps in the window, or the sample-count
+   midpoint when no hardware timestamps are available.
 
-Reads an existing `rmsSignals.csv`, normalises column names via `hermes/rms_columns.py`, and yields one `EmotionWindow` per row. Rows with any NaN channel value are emitted as invalid windows.
+A window where more than `NULL_WINDOW_NAN_THRESHOLD` (10 %) of samples were
+originally invalid is emitted as an `is_invalid=True` window.
+
+**NLMS is not applied before this step.**  The classical-emotion 2.5.0 model
+was trained on bandpass-only windows; NLMS costs ~14 pp LOSO.
+
+### Two-pass calibration
+
+After all windows are collected, `run_window_pipeline` stacks the **valid**
+windows into a `(n_valid, 8, 500)` array and calls `model.set_subject_context`.
+This computes per-subject mean and standard deviation for RMS and waveform-
+length features (required by the `extended_nm_a` z-score normalisation).
+Invalid windows are excluded from calibration.
 
 ### EmotionModel (pluggable)
 
-`V12EmotionModel.infer_from_rms(channel_rms)` constructs the 9-element feature vector (L2 normalise + AVG_RMS) and calls `TwoStageClassifier.infer`, returning an `EmotionWindowResult`.
+`ClassicalEmotionAdapter.predict(samples)` extracts the 25-D `extended_nm_a`
+feature vector, classifies with the sklearn pipeline, merges
+CONTEMPT_LEFT/RIGHT, and maps the uppercase labels to title-case
+`EMOTION_COLUMNS` keys.
 
 ---
 
 ## 7. Processing Steps
 
-### Step 1 — Load EMG (streaming path only)
+### Step 1 — Load EMG
 
-`loadEXG(recpath, re_reference=False)` reads the raw EXG file, normalises timestamps to seconds from start, and returns a 2-D NumPy array of shape `(n_samples, 8)`.
+`loadEXG(recpath, re_reference=False)` reads the raw EXG file, normalises
+timestamps to seconds from start, and returns `(timestamps, eeg_data)` of
+shapes `(N,)` and `(N, 8)`.
 
 ### Step 2 — Invalidate hardware artefacts
 
-`_invalidate_disconnected_samples(eeg_data)` sets disconnect-value samples to `NaN` in-place.
+`_invalidate_disconnected_samples(eeg_data)` sets disconnect-value samples to
+`NaN` in-place.
 
-### Step 3 — Optional NLMS decorrelation
+### Step 3 — Window pipeline
 
-`CausalNLMSFilter.push_batch(eeg_data)` applies causal adaptive decorrelation (streaming path, enabled by default via `apply_nlms=True`).
+`run_window_pipeline(source, model)` runs the two-pass loop (collect → calibrate
+→ classify) described in Section 6.
 
-### Step 4 — Window pipeline
+### Step 4 — Resample to 2 Hz (when hardware timestamps available)
 
-`run_window_pipeline(source, model)` runs the unified loop described in Section 6.
+The raw emotion DataFrame (timestamped at window midpoints) is snapped to the
+shared 0.5 s grid via `_simple_resample`.  `NaN` windows remain `NaN` after
+resampling.
 
-### Step 5 — Resample to 2 Hz (streaming path with hardware timestamps)
-
-The raw emotion DataFrame (timestamped at hardware-clock midpoints) is snapped to the shared 0.5 s grid via `_simple_resample`. `NaN` windows remain `NaN` after resampling.
-
-### Step 6 — Write outputs
+### Step 5 — Write outputs
 
 Three files are written (see Section 9).
 
-### Step 7 — Diagnostic report
+### Step 6 — Diagnostic report
 
-`generate_report(recpath)` saves per-emotion jitter plots and a pie chart of the predicted label distribution.
+`generate_report(recpath)` saves per-emotion jitter plots and a pie chart of
+the predicted label distribution.
 
 ---
 
-## 8. Incremental Caching and RMS-driven Recomputation
+## 8. Incremental Caching
 
 | Condition | Behaviour |
 |-----------|-----------|
 | All three output files exist | Entire step skipped |
-| `rmsSignals.csv` exists but emotion pair is missing | Use `RmsCsvWindowSource`: re-run classifier on cached RMS without loading raw EXG |
-| Neither file exists | Full raw-EXG path via `StreamingWindowSource` |
+| Any file is missing | Full raw-EXG path via `StreamingWindowSource` |
 
-The RMS-driven path is significantly faster on re-runs and supports manual RMS edits (e.g. channel-fixer corrections) propagating to the final emotion output without reprocessing the raw signal.
+The RMS-replay path (from `rmsSignals.csv`) is no longer supported.
+`rmsSignals.csv` is now a write-only diagnostic output.  When emotions need
+recomputing, the full EXG is always reloaded.  This ensures subject
+calibration uses the actual per-subject statistics for every recomputation.
 
 ---
 
@@ -211,19 +237,23 @@ The RMS-driven path is significantly faster on re-runs and supports manual RMS e
 | `Fear` | 0–1 probability | — |
 | `Sadness` | 0–1 probability | — |
 
-`NaN` rows correspond to null windows (hardware disconnects exceeding the 10 % threshold). Written with `na_rep="NULL"`.
+`NaN` rows correspond to null windows.  Written with `na_rep="NULL"`.
 
 ### `features/emotions/rmsSignals.csv`
 
-One row per classifier window (0.5 s step). Columns: `Timestamp`, followed by `AF8`, `AF7`, `CHEEK_R`, `CHEEK_L`, `EAR_R`, `AFz`, `BROW_L`, `NOSE`. Values are raw (un-normalised) RMS. `NaN` rows correspond to null windows.
+One row per classifier window (0.5 s step).  Columns: `Timestamp`, followed
+by `AF8`, `AF7`, `CHEEK_R`, `CHEEK_L`, `EAR_R`, `AFz`, `BROW_L`, `NOSE`.
+Values are raw (un-normalised) RMS computed from the 2.0 s filtered window.
+`NaN` rows correspond to null windows.
 
 ### `features/emotions/emotionClassifierInputs.csv`
 
-One row per valid (non-null) classifier window. Columns:
+One row per valid (non-null) classifier window.  Columns:
 
 - `Timestamp`
-- All feature columns as defined by `model.feature_columns` (L2-normalised RMS + `AVG_RMS`)
-- `PredictedLabel` (string emotion name)
+- 25 feature columns (`rms_*`, `wl_*`, `mdf_*`, `zyg_asymmetry`,
+  `ant_corr`, `nm_ratio_a`) as defined by `model.feature_columns`
+- `PredictedLabel` (title-case emotion name)
 - `PredictedConfidence` (float, 0–1)
 
 ---
@@ -234,8 +264,9 @@ One row per valid (non-null) classifier window. Columns:
 |----------|-------|---------|
 | `DISCONNECT_VALUE` | 187 500 | `constants.py` |
 | `NULL_WINDOW_NAN_THRESHOLD` | 0.10 | `constants.py` |
-| Window length | 1.0 s | `StreamingWindowSource` |
-| Step size | 0.5 s | `StreamingWindowSource` |
+| Window length | 2.0 s (500 samples) | `StreamingWindowSource` |
+| Step size | 0.5 s (125 samples) | `StreamingWindowSource` |
+| Bandpass | 15–40 Hz | `StreamingWindowSource` |
 | Sampling rate | 250 Hz | `StreamingWindowSource` |
 | Output timebase | 0.5 s (2 Hz) | `_simple_resample` |
 
@@ -243,39 +274,43 @@ One row per valid (non-null) classifier window. Columns:
 
 ## 11. Adding a New Model
 
-1. Create `models/<name>/` with a subclass of `EmotionModel` and its `weights/` directory.
-2. Register it in `models/__init__.py`:
+1. Create `models/<name>/` with a subclass of `EmotionModel`.
+2. Implement `load`, `reset`, `set_subject_context`, `predict`,
+   `feature_columns`, and `emotion_labels`.
+3. Register it in `models/__init__.py`:
 
 ```python
-from nucleuskit_toolkit.hermes.processor.emotions_processor.models.v13 import V13EmotionModel
-_REGISTRY["v13"] = V13EmotionModel
+from nucleuskit_toolkit.hermes.processor.emotions_processor.models.mymodel import MyModel
+_REGISTRY["my-model"] = MyModel
 ```
 
-3. Select it at runtime:
+4. Select it at runtime:
 
 ```python
-computeEmotions(recpath, model_name="v13")
+computeEmotions(recpath, model_name="my-model")
 ```
 
 No changes to the pipeline loop or session orchestration are required.
 
 ---
 
-## 12. Classifier Weights Location
+## 12. Model Artifact Location
 
 ```
-models/v12/weights/
-├── config.json                   # Hardware and experiment configuration
-├── feature_columns.json          # Ordered feature column names
-├── artefact_config.json          # AVG_RMS artefact gate threshold (pre-stage)
-├── stage1_neutral_detector.pkl   # Neutral gate (LDA) — Neutral vs Active
-├── stage2_lda.pkl                # Emotion classifier (LDA)
-├── stage2_knn.pkl                # Emotion classifier (KNN)
-├── stage2_cov.npy                # Covariance matrix for Mahalanobis distance
-└── label_encoder.pkl
+models/classical-emotion-2.5.0/
+├── pipeline.joblib        # Fitted sklearn Pipeline (StandardScaler + LogReg)
+├── manifest.json          # Model metadata (name, version, input spec, labels)
+├── config.json            # Training configuration (feature_set, channels, …)
+├── labels.json            # Human-readable label list
+├── metrics.json           # LOSO evaluation results
+└── exg_emotion/           # Self-contained feature extraction + runtime package
+    ├── core/              # interfaces.py, types.py, validation.py, exceptions.py
+    ├── models/classical_v1/  # ClassicalEmotionModel, feature extraction
+    └── runtime/           # Predictor, loader, registry
 ```
 
-To retrain or update the model, replace these files and ensure `feature_columns.json` lists the columns in the exact order expected by the feature extraction step.
+The `exg_emotion` package is imported at runtime via `sys.path.insert` in
+`ClassicalEmotionAdapter.load()`.
 
 ---
 
