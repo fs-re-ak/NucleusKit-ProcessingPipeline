@@ -189,6 +189,16 @@ class ClassicalEmotionAdapter(EmotionModel):
     # ------------------------------------------------------------------ #
 
     @property
+    def model_name(self) -> str:
+        """Model family name as declared in ``manifest.json``."""
+        return self._predictor.model_name
+
+    @property
+    def model_version(self) -> str:
+        """Semantic version string as declared in ``manifest.json``."""
+        return self._predictor.model_version
+
+    @property
     def feature_columns(self) -> list[str]:
         """25 ordered feature column names (RMS + WL + MDF + scale-free)."""
         return FEATURE_COLUMNS

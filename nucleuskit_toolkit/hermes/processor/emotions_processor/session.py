@@ -15,8 +15,10 @@ is silently ignored by this step (cognition processing is unaffected).
 
 from __future__ import annotations
 
+import json
 import os
 import traceback
+from datetime import datetime, timezone
 from os import path
 
 import numpy as np
@@ -42,6 +44,49 @@ from nucleuskit_toolkit.hermes.processor.emotions_processor.report import genera
 def _invalidate_disconnected_samples(eeg_data: np.ndarray) -> None:
     """Replace hardware-saturated (disconnected) samples with NaN in-place."""
     eeg_data[np.isclose(abs(eeg_data), DISCONNECT_VALUE, atol=1)] = np.nan
+
+
+def _write_model_info(emotions_dir: str, model, registry_key: str | None) -> None:
+    """Write ``model_info.json`` to *emotions_dir* recording which model produced the outputs.
+
+    Parameters
+    ----------
+    emotions_dir:
+        Path to ``features/emotions/`` for the current recording.
+    model:
+        The :class:`~.interface.model.EmotionModel` instance that was used.
+    registry_key:
+        The registry key that was passed to :func:`~.models.get_model`
+        (``None`` means the default was used).
+    """
+    from nucleuskit_toolkit.hermes.processor.emotions_processor.models import DEFAULT_MODEL
+
+    # Try to read training provenance from the manifest bundled with the release.
+    experiment_id: str | None = None
+    try:
+        from nucleuskit_toolkit.hermes.processor.emotions_processor.models.classical_emotion.model import (
+            _RELEASE_DIR,
+        )
+        manifest_path = _RELEASE_DIR / "manifest.json"
+        if manifest_path.exists():
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            experiment_id = manifest.get("training", {}).get("experiment_id")
+    except Exception:
+        pass
+
+    info: dict = {
+        "model_name": model.model_name or (registry_key or DEFAULT_MODEL),
+        "model_version": model.model_version or "",
+        "registry_key": registry_key or DEFAULT_MODEL,
+        "processed_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if experiment_id:
+        info["experiment_id"] = experiment_id
+
+    out_path = path.join(emotions_dir, "model_info.json")
+    with open(out_path, "w", encoding="utf-8") as fh:
+        json.dump(info, fh, indent=4)
+    printInfo(f"[emotionsProcessor] Writing {out_path}")
 
 
 def computeEmotions(
@@ -172,6 +217,12 @@ def computeEmotions(
             rms_df.to_csv(features_out, index=False)
         elif need_rms and not pipeline_result.rms_rows:
             printError("[emotionsProcessor] rmsSignals.csv was needed but no RMS rows were collected")
+
+        _write_model_info(
+            path.join(recpath, "features", "emotions"),
+            model,
+            model_name,
+        )
 
         printInfo("[emotionsProcessor] Emotion computation completed")
         generate_report(recpath)

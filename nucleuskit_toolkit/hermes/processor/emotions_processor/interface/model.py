@@ -81,6 +81,25 @@ class EmotionModel(ABC):
         ...
 
     @property
+    def model_name(self) -> str:
+        """Short model family name, e.g. ``"classical-emotion"``.
+
+        Override in subclasses that have a meaningful identity.  The base
+        implementation returns an empty string so legacy adapters do not
+        need to be changed.
+        """
+        return ""
+
+    @property
+    def model_version(self) -> str:
+        """Semantic version string, e.g. ``"2.5.0"``.
+
+        Override in subclasses that have a meaningful version.  The base
+        implementation returns an empty string.
+        """
+        return ""
+
+    @property
     @abstractmethod
     def feature_columns(self) -> list[str]:
         """Ordered feature names matching the model input vector."""
