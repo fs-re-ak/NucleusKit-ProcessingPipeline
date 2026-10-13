@@ -10,11 +10,12 @@
 ## 1. Purpose
 
 The emotions pipeline infers moment-to-moment facial emotion probabilities from
-8-channel surface EMG recorded by the Hermes device.  Classification is
-performed using **classical-emotion 2.5.0** — a logistic-regression model
-trained on the `extended_nm_a` feature set (exp-0040, 24 subjects, 48.2 %
-LOSO accuracy).  The output is a set of per-emotion probability time-series
-sampled at 2 Hz.
+8-channel surface EMG recorded by the Hermes device.  Classification defaults
+to **classical-emotion 2.5.0** — a logistic-regression model trained on the
+`extended_nm_a` feature set (exp-0040).  Other vendored releases (for example
+2.6.0) can be selected from offline processing or via
+`computeEmotions(..., model_name=...)`.  The output is a set of per-emotion
+probability time-series sampled at 2 Hz.
 
 ---
 
@@ -32,11 +33,13 @@ hermes/processor/emotions_processor/
 │   ├── windows.py       # EmotionWindow dataclass + WindowSource Protocol
 │   └── streaming.py     # StreamingWindowSource (batch filtfilt)
 └── models/
-    ├── __init__.py                 # Model registry: get_model(name)
-    ├── classical_emotion/          # Adapter wrapping the vendored exg_emotion package
+    ├── __init__.py                 # get_model / list_models
+    ├── catalog.py                  # Discover release folders + preprocess specs
+    ├── classical_emotion/          # Adapter wrapping a vendored exg_emotion package
     │   ├── __init__.py
     │   └── model.py                # ClassicalEmotionAdapter
-    └── classical-emotion-2.5.0/   # Vendored release artifact (pipeline.joblib, exg_emotion/)
+    ├── classical-emotion-2.5.0/    # Vendored release (15–40 Hz)
+    └── classical-emotion-2.6.0/    # Vendored release (60 Hz notch + 20–110 Hz)
 ```
 
 ---
@@ -58,21 +61,24 @@ channels in the order defined by `HermesConstants`.
 
 **Sampling rate:** 250 Hz
 
-**Channel order** (Hermes hardware order = classical-emotion training order):
+**Channel order** (Hermes hardware order = classical-emotion training order).
+Raw files may be headerless or use `ch1`..`ch8` in this order. Written RMS
+columns use the output names below.
 
-| Index | Hermes name | Training name |
-|-------|-------------|---------------|
-| 0 | AF8 | Supraorbital_L |
-| 1 | AF7 | Supraorbital_R |
-| 2 | CHEEK_R | Zygomatic_L |
-| 3 | CHEEK_L | Zygomatic_R |
-| 4 | EAR_R | Temporal_EEG |
-| 5 | AFz | Glabella |
-| 6 | BROW_L | Temporal_R |
-| 7 | NOSE | Nasolabial |
+| Index | Raw column | Electrode | Output RMS column |
+|-------|------------|-----------|-------------------|
+| 0 | ch1 | AF8 | HEAD_R_RMS |
+| 1 | ch2 | AF7 | HEAD_L_RMS |
+| 2 | ch3 | CHEEK_R | CHEEK_R_RMS |
+| 3 | ch4 | CHEEK_L | CHEEK_L_RMS |
+| 4 | ch5 | EAR_R | EAR_R_RMS |
+| 5 | ch6 | AFz | FOREHEAD_L_RMS |
+| 6 | ch7 | BROW_L | BROW_RMS |
+| 7 | ch8 | NOSE | NOSE_RMS |
 
-The names differ cosmetically; the hardware physical mapping is identical.  No
-channel permutation is applied.
+Electrode names stay internal (cognition, NLMS, realtime). Feature files and
+the emotions report use the output RMS names. Raw `ch1`..`ch8` are accepted
+in this order, including when the header lists them out of order.
 
 ---
 
@@ -91,7 +97,8 @@ NULL_WINDOW_NAN_THRESHOLD = 0.10   # 10 % of samples NaN => null window
 
 ## 5. Classifier Architecture
 
-The bundled model lives in `models/classical-emotion-2.5.0/pipeline.joblib`.
+The default model lives in `models/classical-emotion-2.5.0/pipeline.joblib`.
+Additional releases sit beside it (for example `classical-emotion-2.6.0/`).
 
 | Property | Value |
 |----------|-------|
@@ -142,8 +149,10 @@ Accepts pre-loaded, NaN-invalidated EMG `(N, 8)` + optional hardware timestamps.
 
 1. Fills NaN positions with 0 (so the filter does not diverge; original NaN
    flags are preserved).
-2. Applies a 4th-order Butterworth bandpass (15–40 Hz) via `scipy.signal.sosfiltfilt`
-   **on the full recording at once** (zero-phase, no phase lag).
+2. Applies the selected release's filter: optional 60 Hz notch, then a
+   4th-order Butterworth bandpass via `scipy.signal.sosfiltfilt` **on the
+   full recording at once** (zero-phase).  2.5.0 uses 15–40 Hz and no notch;
+   2.6.0 uses a 60 Hz notch then 20–110 Hz.
 3. Slides a 500-sample (2.0 s) window over the result in 125-sample (0.5 s)
    steps, yielding one `EmotionWindow` per hop.  Window timestamp is the
    median of the hardware timestamps in the window, or the sample-count
@@ -242,7 +251,8 @@ calibration uses the actual per-subject statistics for every recomputation.
 ### `features/emotions/rmsSignals.csv`
 
 One row per classifier window (0.5 s step).  Columns: `Timestamp`, followed
-by `AF8`, `AF7`, `CHEEK_R`, `CHEEK_L`, `EAR_R`, `AFz`, `BROW_L`, `NOSE`.
+by `HEAD_R_RMS`, `HEAD_L_RMS`, `CHEEK_R_RMS`, `CHEEK_L_RMS`, `EAR_R_RMS`,
+`FOREHEAD_L_RMS`, `BROW_RMS`, `NOSE_RMS` (raw columns `ch1`..`ch8`).
 Values are raw (un-normalised) RMS computed from the 2.0 s filtered window.
 `NaN` rows correspond to null windows.
 
@@ -255,6 +265,8 @@ One row per valid (non-null) classifier window.  Columns:
   `ant_corr`, `nm_ratio_a`) as defined by `model.feature_columns`
 - `PredictedLabel` (title-case emotion name)
 - `PredictedConfidence` (float, 0–1)
+- L2-normalised per-channel RMS: `HEAD_R_RMS` … `NOSE_RMS` (same order as
+  `ch1`..`ch8`). The emotions report reads these columns.
 
 ---
 
@@ -266,7 +278,7 @@ One row per valid (non-null) classifier window.  Columns:
 | `NULL_WINDOW_NAN_THRESHOLD` | 0.10 | `constants.py` |
 | Window length | 2.0 s (500 samples) | `StreamingWindowSource` |
 | Step size | 0.5 s (125 samples) | `StreamingWindowSource` |
-| Bandpass | 15–40 Hz | `StreamingWindowSource` |
+| Bandpass / notch | From the selected release `config.json`; default 15–40 Hz, no notch | `StreamingWindowSource` |
 | Sampling rate | 250 Hz | `StreamingWindowSource` |
 | Output timebase | 0.5 s (2 Hz) | `_simple_resample` |
 
@@ -274,23 +286,37 @@ One row per valid (non-null) classifier window.  Columns:
 
 ## 11. Adding a New Model
 
-1. Create `models/<name>/` with a subclass of `EmotionModel`.
-2. Implement `load`, `reset`, `set_subject_context`, `predict`,
-   `feature_columns`, and `emotion_labels`.
-3. Register it in `models/__init__.py`:
+### Drop-in classical-emotion release
+
+1. Copy the release directory into `models/` so it contains `manifest.json`,
+   `config.json`, `pipeline.joblib`, and `exg_emotion/` (plus any extra
+   artifacts such as `prior_ratios.json`).
+2. Declare `bandpass_hz` and, if needed, `notch_hz` in `config.json`.
+   If `bandpass_hz` is omitted, the pipeline uses 15–40 Hz and no notch.
+3. Add a matching `[tool.setuptools.package-data]` entry in `pyproject.toml`
+   so installed wheels include the artifacts.
+4. Select it by directory name:
 
 ```python
-from nucleuskit_toolkit.hermes.processor.emotions_processor.models.mymodel import MyModel
-_REGISTRY["my-model"] = MyModel
+computeEmotions(recpath, model_name="classical-emotion-2.6.0")
 ```
 
+The offline GUI combo and `python -m nucleuskit_toolkit --emotion-model …`
+list every discovered release.  The registry key is the directory name.
+`classical-emotion` remains an alias for `classical-emotion-2.5.0`.
+
+### Custom EmotionModel subclass
+
+1. Create `models/<name>/` with a subclass of `EmotionModel`.
+2. Implement `load`, `reset`, `set_subject_context`, `predict`,
+   `feature_columns`, and `emotion_labels`.  Override `preprocess_spec`
+   when the model is not trained on 15–40 Hz windows.
+3. Wire it through `get_model` (or keep using a drop-in release folder).
 4. Select it at runtime:
 
 ```python
 computeEmotions(recpath, model_name="my-model")
 ```
-
-No changes to the pipeline loop or session orchestration are required.
 
 ---
 
@@ -307,10 +333,13 @@ models/classical-emotion-2.5.0/
     ├── core/              # interfaces.py, types.py, validation.py, exceptions.py
     ├── models/classical_v1/  # ClassicalEmotionModel, feature extraction
     └── runtime/           # Predictor, loader, registry
+
+models/classical-emotion-2.6.0/   # same layout, plus prior_ratios.json
 ```
 
 The `exg_emotion` package is imported at runtime via `sys.path.insert` in
-`ClassicalEmotionAdapter.load()`.
+`ClassicalEmotionAdapter.load()`.  Switching versions unloads the previous
+`exg_emotion*` modules so the two releases do not share one import.
 
 ---
 

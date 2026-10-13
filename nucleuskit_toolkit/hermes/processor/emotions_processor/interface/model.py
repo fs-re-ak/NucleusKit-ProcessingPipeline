@@ -11,8 +11,14 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
+
+from nucleuskit_toolkit.hermes.processor.emotions_processor.interface.preprocess import (
+    DEFAULT_PREPROCESS_SPEC,
+    PreprocessSpec,
+)
 
 
 @dataclass(frozen=True)
@@ -98,6 +104,19 @@ class EmotionModel(ABC):
         implementation returns an empty string.
         """
         return ""
+
+    @property
+    def release_dir(self) -> Path | None:
+        """Filesystem path of the loaded release, if the model is file-backed."""
+        return None
+
+    @property
+    def preprocess_spec(self) -> PreprocessSpec:
+        """Filter settings the window source must apply before ``predict``.
+
+        Default is the 2.5.0 contract (15–40 Hz, no notch).
+        """
+        return DEFAULT_PREPROCESS_SPEC
 
     @property
     @abstractmethod

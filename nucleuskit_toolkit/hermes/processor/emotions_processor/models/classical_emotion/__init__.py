@@ -1,9 +1,10 @@
 """
-classical-emotion 2.5.0 adapter for the NucleusKit emotions pipeline.
+classical-emotion adapter for the NucleusKit emotions pipeline.
 
-Wraps the vendored ``exg_emotion`` package (classical-emotion 2.5.0) as a
-:class:`~...interface.model.EmotionModel` that the unified pipeline can load
-from the registry under the key ``"classical-emotion"``.
+Wraps a vendored ``exg_emotion`` release as an
+:class:`~...interface.model.EmotionModel`.  The default load path is
+``classical-emotion-2.5.0``; ``get_model`` can point the same adapter at
+any discovered release directory.
 """
 
 from .model import ClassicalEmotionAdapter

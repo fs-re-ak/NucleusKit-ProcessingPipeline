@@ -4,33 +4,47 @@ from __future__ import annotations
 
 import pandas as pd
 
-from nucleuskit_toolkit.hermes.constants import CHANNEL_NAMES
+from nucleuskit_toolkit.hermes.constants import (
+    CHANNEL_NAMES,
+    OUTPUT_RMS_COLUMNS,
+    hardware_channel_index,
+)
 
 # Backward-compatible alias used by UI and channel-fixer imports.
 CANONICAL_CHANNEL_NAMES = CHANNEL_NAMES
 
 _CANONICAL_SET = set(CHANNEL_NAMES)
 
-# Legacy labels -> canonical (keys match typical CSV headers).
-_ALIAS_TO_CANONICAL: dict[str, str] = {
-    "HEAD_R": "AF8",
-    "HEAD_L": "AF7",
-    "FOREHEAD_L": "AFz",
-    "BROW": "BROW_L",
-    **{n: n for n in CHANNEL_NAMES},
-}
+
+def _canonical_name(column: str) -> str | None:
+    idx = hardware_channel_index(column)
+    if idx is None:
+        return None
+    return CHANNEL_NAMES[idx]
+
+
+def as_output_rms_frame(df: pd.DataFrame) -> pd.DataFrame:
+    """Rename a canonical RMS frame to the names written on disk.
+
+    Input columns are ``Timestamp`` plus electrode names (``AF8`` …).
+    Output columns are ``Timestamp`` plus ``HEAD_R_RMS`` ….
+    """
+    rename = dict(zip(CHANNEL_NAMES, OUTPUT_RMS_COLUMNS))
+    out = df.rename(columns=rename)
+    return out[["Timestamp", *OUTPUT_RMS_COLUMNS]]
 
 
 def _rename_channels(channel_cols: list[str]) -> dict[str, str]:
     seen_canon: dict[str, str] = {}
     rename_map: dict[str, str] = {}
     for c in channel_cols:
-        if c not in _ALIAS_TO_CANONICAL:
+        canon = _canonical_name(c)
+        if canon is None:
             raise ValueError(
                 f"Unknown RMS channel column {c!r}. "
-                f"Use legacy names (e.g. HEAD_R) or canonical names {list(CHANNEL_NAMES)}."
+                f"Use ch1–ch8, legacy names (e.g. HEAD_R), electrode names "
+                f"{list(CHANNEL_NAMES)}, or output names {list(OUTPUT_RMS_COLUMNS)}."
             )
-        canon = _ALIAS_TO_CANONICAL[c]
         if canon in seen_canon:
             raise ValueError(
                 f"Ambiguous columns {seen_canon[canon]!r} and {c!r} both map to {canon!r}"

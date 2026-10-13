@@ -35,6 +35,7 @@ from nucleuskit_toolkit.hermes.processor.rms_ops import (
 )
 from nucleuskit_toolkit.hermes.rms_columns import (
     CANONICAL_CHANNEL_NAMES,
+    as_output_rms_frame,
     normalize_rms_dataframe,
 )
 from nucleuskit_toolkit.ui.offline_job import rms_features_preflight
@@ -340,7 +341,7 @@ class ChannelGainPage(QWidget):
         work_path = working_rms_csv(self._folder)
         try:
             ensure_baseline_snapshot(self._folder)
-            out.to_csv(work_path, index=False)
+            as_output_rms_frame(out).to_csv(work_path, index=False)
             parts = [
                 f"{CANONICAL_CHANNEL_NAMES[i]}:g={self._gains[i]:.4g},z={self._zeros[i]:.4g}"
                 for i in range(8)

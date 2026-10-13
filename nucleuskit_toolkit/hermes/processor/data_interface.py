@@ -8,40 +8,72 @@ Author(s):
     Winter 2026
 """
 
+import csv
 import os
 import traceback
 
 import numpy as np
 import pandas as pd
 
-from nucleuskit_toolkit.hermes.constants import HermesConstants
+from nucleuskit_toolkit.hermes.constants import CHANNEL_NAMES, HermesConstants, hardware_channel_index
+from nucleuskit_toolkit.logging_utils import printError
 from nucleuskit_toolkit.shared.file_interface import (
+    has_text_header,
     loadtxt_drop_last_if_incomplete,
     normalise_timestamps_to_seconds,
 )
-from nucleuskit_toolkit.logging_utils import printError, printInfo
+
+EXG_FILENAMES = ["rawEEG_0.csv", "eeg.tmp", "eeg.csv", "eegRec_0.csv"]
+_TIMESTAMP_HEADERS = {"timestamp", "time", "t"}
 
 
-def _load_exg_numeric_csv(filepath):
+def load_exg_matrix(filepath):
+    """Load a raw EXG CSV as ``[timestamp, ch1..ch8]`` in hardware order.
+
+    Headerless files are positional: column 0 is time, columns 1–8 are
+    ``ch1``..``ch8``. A text header may name those columns ``ch1``..``ch8``,
+    electrode names, legacy labels (``HEAD_R`` …), or the output RMS names.
+    Named columns are reordered into hardware order. Timestamps are left raw.
     """
-    Load raw EXG/EEG matrix from CSV (headerless numeric rows, or skip one header row).
+    header = None
+    if has_text_header(filepath):
+        with open(filepath, "r", newline="") as handle:
+            header = next(csv.reader(handle))
+    data = np.atleast_2d(loadtxt_drop_last_if_incomplete(filepath))
+    if header is None:
+        return data
+    return _reorder_named_exg(data, header)
 
-    Returns:
-        numpy array or None on failure
-    """
-    try:
-        return np.loadtxt(filepath, delimiter=",")
-    except ValueError:
-        try:
-            return np.loadtxt(filepath, delimiter=",", skiprows=1)
-        except Exception as e:
-            printError(f"[HermesDataInterface] Could not load EXG file (with header skip) {filepath}: {e}")
-            printError(f"[HermesDataInterface] Traceback:\n{traceback.format_exc()}")
-            return None
-    except Exception as e:
-        printError(f"[HermesDataInterface] Could not load EXG file {filepath}: {e}")
-        printError(f"[HermesDataInterface] Traceback:\n{traceback.format_exc()}")
-        return None
+
+def _reorder_named_exg(data, header):
+    """Place named channel columns into hardware order. Fall back to file order."""
+    names = [str(cell).strip() for cell in header]
+    if data.shape[1] != len(names):
+        return data
+
+    ts_idx = 0
+    for i, name in enumerate(names):
+        if name.lower() in _TIMESTAMP_HEADERS:
+            ts_idx = i
+            break
+
+    placed: dict[int, int] = {}
+    for i, name in enumerate(names):
+        if i == ts_idx:
+            continue
+        hw = hardware_channel_index(name)
+        if hw is None or hw in placed:
+            return data
+        placed[hw] = i
+
+    if set(placed) != set(range(len(CHANNEL_NAMES))):
+        return data
+
+    ordered = np.empty((data.shape[0], 1 + len(CHANNEL_NAMES)), dtype=float)
+    ordered[:, 0] = data[:, ts_idx]
+    for hw, src in placed.items():
+        ordered[:, 1 + hw] = data[:, src]
+    return ordered
 
 
 def loadEXG(rec_path, re_reference=False):
@@ -55,7 +87,7 @@ def loadEXG(rec_path, re_reference=False):
     Returns:
         Tuple (timestamps, exg_data) or None on failure
     """
-    valid_filenames = ["rawEEG_0.csv", "eeg.tmp", "eeg.csv", "eegRec_0.csv"]
+    valid_filenames = EXG_FILENAMES
     filename = None
 
     for tmp in valid_filenames:
@@ -69,7 +101,12 @@ def loadEXG(rec_path, re_reference=False):
         return None
 
     filepath = os.path.join(rec_path, "rawData", filename)
-    exg_data = _load_exg_numeric_csv(filepath)
+    try:
+        exg_data = load_exg_matrix(filepath)
+    except Exception as e:
+        printError(f"[HermesDataInterface] Could not load EXG file {filepath}: {e}")
+        printError(f"[HermesDataInterface] Traceback:\n{traceback.format_exc()}")
+        exg_data = None
 
     if exg_data is None:
         printError(f"[HermesDataInterface] Failed to load EXG data from {filepath}")
@@ -136,7 +173,7 @@ class HermesDataInterface:
             ``df`` is a pandas DataFrame with one column per channel.
             Returns ``(None, None)`` if no data file is found.
         """
-        potentialFilenames = ["rawEEG_0.csv", "eeg.tmp", "eeg.csv", "eegRec_0.csv"]
+        potentialFilenames = EXG_FILENAMES
         data = None
         tried = []
 
@@ -144,9 +181,8 @@ class HermesDataInterface:
             filepath = os.path.join(self.recPath, "rawData", filename)
             tried.append(filepath)
             if os.path.isfile(filepath):
-                printInfo(f"[HermesDataInterface] Found EEG file: {filepath}")
                 try:
-                    data = loadtxt_drop_last_if_incomplete(filepath)
+                    data = load_exg_matrix(filepath)
                     break
                 except Exception as e:
                     printError(f"[HermesDataInterface] Failed to load {filename}: {e}")
@@ -156,8 +192,6 @@ class HermesDataInterface:
             printError("[HermesDataInterface] No EEG data could be loaded.")
             printError(f"[HermesDataInterface] Looked for: {tried}")
             return None, None
-
-        printInfo(f"[HermesDataInterface] EEG raw data shape: {data.shape}")
 
         if data.shape[1] < 6:
             printError(f"[HermesDataInterface] EEG data has only {data.shape[1]} columns — "
@@ -208,15 +242,14 @@ class HermesDataInterface:
             columns ['CHEEK_R', 'CHEEK_L', 'BROW_L', 'NOSE'].
             Returns ``(None, None)`` if no data file is found or loading fails.
         """
-        potentialFilenames = ["rawEEG_0.csv", "eeg.tmp", "eeg.csv", "eegRec_0.csv"]
+        potentialFilenames = EXG_FILENAMES
         data = None
 
         for filename in potentialFilenames:
             filepath = os.path.join(self.recPath, "rawData", filename)
             if os.path.isfile(filepath):
-                printInfo(f"[HermesDataInterface] getReferenceChannels: loading {filepath}")
                 try:
-                    data = loadtxt_drop_last_if_incomplete(filepath)
+                    data = load_exg_matrix(filepath)
                     break
                 except Exception as e:
                     printError(f"[HermesDataInterface] getReferenceChannels: failed to load {filename}: {e}")

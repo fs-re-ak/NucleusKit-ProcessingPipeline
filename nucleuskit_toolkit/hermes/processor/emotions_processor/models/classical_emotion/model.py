@@ -1,16 +1,16 @@
 """
-Adapter wrapping classical-emotion 2.5.0 as a NucleusKit EmotionModel.
+Adapter wrapping a vendored classical-emotion release as a NucleusKit EmotionModel.
 
-The vendored release lives at
-``models/classical-emotion-2.5.0/``.  Its ``exg_emotion`` sub-package is
-added to ``sys.path`` on first load so the adapter can import
-``exg_emotion.runtime.predictor.Predictor`` without requiring an installed
-package.
+Each release lives under ``models/classical-emotion-<version>/``.  Its
+``exg_emotion`` sub-package is activated on ``sys.path`` for that load so the
+adapter can import ``exg_emotion.runtime.predictor.Predictor``.  Cached
+``exg_emotion*`` modules are dropped first so a later load of another version
+does not reuse the first package.
 
 Subject calibration contract
 -----------------------------
 The underlying model (``extended_nm_a`` feature set) performs per-subject
-z-scoring of RMS and waveform-length features.  :meth:`set_subject_context`
+normalisation of RMS and waveform-length features.  :meth:`set_subject_context`
 **must** be called once with all valid windows from the current recording
 before any :meth:`predict` call.  Calling :meth:`reset` between recordings
 clears the calibration so no subject's stats bleed into the next.
@@ -29,15 +29,20 @@ from nucleuskit_toolkit.hermes.processor.emotions_processor.interface.model impo
     EmotionModel,
     EmotionWindowResult,
 )
+from nucleuskit_toolkit.hermes.processor.emotions_processor.interface.preprocess import (
+    PreprocessSpec,
+)
+from nucleuskit_toolkit.hermes.processor.emotions_processor.models.catalog import (
+    load_preprocess_spec,
+)
 
 # ---------------------------------------------------------------------------
 # Paths and constants
 # ---------------------------------------------------------------------------
 
-# Absolute path to the vendored classical-emotion 2.5.0 release directory.
-_RELEASE_DIR: Path = (
-    Path(__file__).parent.parent / "classical-emotion-2.5.0"
-)
+# Default release when :meth:`ClassicalEmotionAdapter.load` is called with no path.
+_DEFAULT_RELEASE_DIR: Path = Path(__file__).parent.parent / "classical-emotion-2.5.0"
+_RELEASE_DIR = _DEFAULT_RELEASE_DIR  # kept for callers that imported the old name
 
 # Number of features produced by the extended_nm_a feature set.
 _N_FEATURES: int = 25
@@ -69,11 +74,28 @@ FEATURE_COLUMNS: list[str] = (
 # sys.path helper
 # ---------------------------------------------------------------------------
 
-def _ensure_exg_emotion_on_path() -> None:
-    """Insert the vendored release directory into ``sys.path`` if needed."""
-    release_str = str(_RELEASE_DIR)
-    if release_str not in sys.path:
-        sys.path.insert(0, release_str)
+def _is_exg_release_path(path_str: str) -> bool:
+    """True when *path_str* looks like a vendored classical-emotion release."""
+    try:
+        folder = Path(path_str)
+    except (OSError, TypeError, ValueError):
+        return False
+    return (folder / "exg_emotion").is_dir() and (folder / "manifest.json").is_file()
+
+
+def _purge_exg_emotion_modules() -> None:
+    """Drop cached ``exg_emotion`` imports so the next release can load cleanly."""
+    for mod in list(sys.modules):
+        if mod == "exg_emotion" or mod.startswith("exg_emotion."):
+            del sys.modules[mod]
+
+
+def _activate_release(release_dir: Path) -> None:
+    """Put *release_dir* first on ``sys.path`` and unload any prior ``exg_emotion``."""
+    _purge_exg_emotion_modules()
+    release_str = str(release_dir.resolve())
+    sys.path[:] = [p for p in sys.path if not _is_exg_release_path(p)]
+    sys.path.insert(0, release_str)
 
 
 # ---------------------------------------------------------------------------
@@ -81,9 +103,9 @@ def _ensure_exg_emotion_on_path() -> None:
 # ---------------------------------------------------------------------------
 
 class ClassicalEmotionAdapter(EmotionModel):
-    """EmotionModel backed by the classical-emotion 2.5.0 ``exg_emotion`` package.
+    """EmotionModel backed by a vendored classical-emotion ``exg_emotion`` package.
 
-    Loads ``pipeline.joblib`` from the vendored release directory.  Channel
+    Loads ``pipeline.joblib`` from the selected release directory.  Channel
     order from :func:`~...session.loadEXG` matches the model training order
     (Hermes hardware order = ``Supraorbital_L`` … ``Nasolabial``), so no
     permutation is applied.
@@ -92,10 +114,14 @@ class ClassicalEmotionAdapter(EmotionModel):
     ----------
     predictor:
         A loaded ``exg_emotion.runtime.predictor.Predictor`` instance.
+    release_dir:
+        Absolute path to the release artifact directory that was loaded.
     """
 
-    def __init__(self, predictor) -> None:  # noqa: ANN001
+    def __init__(self, predictor, release_dir: Path) -> None:  # noqa: ANN001
         self._predictor = predictor
+        self._release_dir = Path(release_dir)
+        self._preprocess_spec = load_preprocess_spec(self._release_dir)
 
     # ------------------------------------------------------------------ #
     # EmotionModel contract                                                #
@@ -103,22 +129,22 @@ class ClassicalEmotionAdapter(EmotionModel):
 
     @classmethod
     def load(cls, release_dir: Optional[str] = None, **kwargs) -> "ClassicalEmotionAdapter":
-        """Load classical-emotion 2.5.0 and return a ready adapter.
+        """Load a classical-emotion release and return a ready adapter.
 
         Parameters
         ----------
         release_dir:
-            Path to the ``classical-emotion-2.5.0`` release artifact directory.
-            Defaults to the vendored copy bundled with this package.
+            Path to a ``classical-emotion-<version>`` release directory.
+            Defaults to the vendored 2.5.0 copy bundled with this package.
         **kwargs:
             Ignored; accepted for registry-call compatibility.
         """
-        _ensure_exg_emotion_on_path()
+        rdir = Path(release_dir) if release_dir else _DEFAULT_RELEASE_DIR
+        _activate_release(rdir)
         from exg_emotion.runtime.predictor import Predictor  # type: ignore[import]
 
-        rdir = Path(release_dir) if release_dir else _RELEASE_DIR
         predictor = Predictor.from_release_dir(rdir)
-        return cls(predictor)
+        return cls(predictor, rdir)
 
     def reset(self) -> None:
         """Clear per-subject calibration stats so the adapter is ready for a new recording."""
@@ -197,6 +223,16 @@ class ClassicalEmotionAdapter(EmotionModel):
     def model_version(self) -> str:
         """Semantic version string as declared in ``manifest.json``."""
         return self._predictor.model_version
+
+    @property
+    def release_dir(self) -> Path:
+        """Release directory this adapter loaded."""
+        return self._release_dir
+
+    @property
+    def preprocess_spec(self) -> PreprocessSpec:
+        """Bandpass / notch the window source must apply for this release."""
+        return self._preprocess_spec
 
     @property
     def feature_columns(self) -> list[str]:

@@ -20,28 +20,19 @@ Author(s):
 
 from __future__ import annotations
 
-from os import path
 import os
+from os import path
 
-import numpy as np
-import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.ticker as ticker
+import numpy as np
+import pandas as pd
 
-from nucleuskit_toolkit.logging_utils import printInfo, printError
+from nucleuskit_toolkit.hermes.constants import OUTPUT_RMS_COLUMNS
+from nucleuskit_toolkit.logging_utils import printError, printInfo
 
-# Ordered channel RMS feature columns in emotionClassifierInputs.csv.
-# AVG_RMS is excluded from per-channel jitter plots (it is a derived scalar).
-CHANNEL_RMS_COLUMNS: list[str] = [
-    "HEAD_R_RMS",
-    "HEAD_L_RMS",
-    "CHEEK_R_RMS",
-    "CHEEK_L_RMS",
-    "EAR_R_RMS",
-    "FOREHEAD_L_RMS",
-    "BROW_RMS",
-    "NOSE_RMS",
-]
+# L2-normalised per-channel RMS columns written into emotionClassifierInputs.csv.
+CHANNEL_RMS_COLUMNS: list[str] = list(OUTPUT_RMS_COLUMNS)
 
 # Short display labels for the X-axis (same order as CHANNEL_RMS_COLUMNS).
 CHANNEL_LABELS: list[str] = [

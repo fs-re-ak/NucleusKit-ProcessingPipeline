@@ -9,11 +9,20 @@ _LOGGER = logging.getLogger("nucleuskit_toolkit")
 
 
 class _AnsiAwareHandler(logging.StreamHandler):
+    """Write to the current ``sys.stdout``.
+
+    The stream is resolved on every record so a GUI worker can redirect
+    stdout into the on-screen log after this handler was created.
+    """
+
     def emit(self, record: logging.LogRecord) -> None:
         try:
             msg = self.format(record)
-            stream = self.stream
-            if stream and hasattr(stream, "isatty") and stream.isatty():
+            stream = sys.stdout
+            if stream is None:
+                return
+            self.stream = stream
+            if hasattr(stream, "isatty") and stream.isatty():
                 if record.levelno >= logging.ERROR:
                     msg = f"\033[91m{msg}\033[0m"
                 elif record.levelno >= logging.WARNING:

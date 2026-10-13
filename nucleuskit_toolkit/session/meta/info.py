@@ -1,9 +1,13 @@
 ﻿
-import os,sys
-import numpy as np
 import json
+import os
+
+import numpy as np
+
+from nucleuskit_toolkit.hermes.processor.data_interface import EXG_FILENAMES, load_exg_matrix
+from nucleuskit_toolkit.logging_utils import printInfo
 from nucleuskit_toolkit.session.layout import loadCSVAsNumpy
-from nucleuskit_toolkit.logging_utils import printInfo, printWarning, printError
+
 
 class RecordingInfo():
     """
@@ -23,11 +27,8 @@ class RecordingInfo():
         self.basepath = basepath
 
         if not load:
-            # get length
             self._getRecordingLengthInfo()
-
-            # save to file
-            printInfo(json.dumps(self._save(), indent=4))
+            self._save()
 
         else:
             self._load()
@@ -53,27 +54,25 @@ class RecordingInfo():
                     break
             shimmerDuration = shimmerRecording[-1, 0] - shimmerRecording[0, 0]
             self.shimmerReadable = True
-        except:
+        except Exception:
             shimmerDuration = 0
 
-        try:
-            if os.path.exists(os.path.join(self.basepath, "rawData/rawEEG_0.csv")):
-                eegRecording = loadCSVAsNumpy(os.path.join(self.basepath, "rawData/rawEEG_0.csv"))
-            else:
-                eegRecording = loadCSVAsNumpy(os.path.join(self.basepath, "rawData/eeg.tmp"))
-            eegDuration = eegRecording[-1, 0] - eegRecording[0, 0]
-            self.eegReadable = True
-        except:
-            eegDuration = 0
+        eegDuration = 0
+        for _name in EXG_FILENAMES:
+            _path = os.path.join(self.basepath, "rawData", _name)
+            if not os.path.isfile(_path):
+                continue
+            try:
+                eegRecording = load_exg_matrix(_path)
+                eegDuration = eegRecording[-1, 0] - eegRecording[0, 0]
+                self.eegReadable = True
+                break
+            except Exception:
+                continue
 
         # use shimmer and EEG as reference, select the longest one
         self.duration = np.max([shimmerDuration, eegDuration])/1000
         self.duration = self._myround(self.duration, base=0.5)
-
-        if self.duration == 0:
-            printWarning("Warning, duration is equal to 0... need at least the shimmer or eeg to provide ground truth")
-
-        pass
 
     def _myround(self, x, base=5):
         return base * round(x / base)
@@ -119,7 +118,7 @@ def extractMetaInfo(basepath):
 
     printInfo("[metaInfoTools] Extracting metainfo ...]")
 
-    recInfo = RecordingInfo(basepath)
+    RecordingInfo(basepath)
     #recInfo = RecordingInfo(basepath, load=True)
 
 

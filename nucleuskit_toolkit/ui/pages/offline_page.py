@@ -11,6 +11,7 @@ from PySide6.QtCore import QObject, QThread, QTimer, Signal, Slot
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
     QCheckBox,
+    QComboBox,
     QFileDialog,
     QGroupBox,
     QHBoxLayout,
@@ -25,6 +26,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from nucleuskit_toolkit.hermes.processor.emotions_processor.models import (
+    DEFAULT_MODEL,
+    list_models,
+    resolve_model,
+)
 from nucleuskit_toolkit.ui.offline_job import QueueTextWriter, dataset_preflight, session_preflight
 
 
@@ -39,6 +45,7 @@ class PipelineWorker(QObject):
         log_queue: queue.SimpleQueue[str],
         skip_video_rotation: bool = False,
         apply_nlms: bool = True,
+        emotion_model: str | None = None,
     ) -> None:
         super().__init__()
         self._folder = folder
@@ -46,6 +53,7 @@ class PipelineWorker(QObject):
         self._log_queue = log_queue
         self._skip_video_rotation = skip_video_rotation
         self._apply_nlms = apply_nlms
+        self._emotion_model = emotion_model
 
     @Slot()
     def run_pipeline(self) -> None:
@@ -65,6 +73,7 @@ class PipelineWorker(QObject):
                 None,
                 skip_video_rotation=self._skip_video_rotation,
                 apply_nlms=self._apply_nlms,
+                emotion_model=self._emotion_model,
             )
             pipe.processSession(job)
         except BaseException:
@@ -93,12 +102,14 @@ class BatchPipelineWorker(QObject):
         log_queue: queue.SimpleQueue[str],
         skip_video_rotation: bool = False,
         apply_nlms: bool = True,
+        emotion_model: str | None = None,
     ) -> None:
         super().__init__()
         self._folders = folders
         self._log_queue = log_queue
         self._skip_video_rotation = skip_video_rotation
         self._apply_nlms = apply_nlms
+        self._emotion_model = emotion_model
 
     @Slot()
     def run_pipeline(self) -> None:
@@ -123,6 +134,7 @@ class BatchPipelineWorker(QObject):
                         None,
                         skip_video_rotation=self._skip_video_rotation,
                         apply_nlms=self._apply_nlms,
+                        emotion_model=self._emotion_model,
                     )
                     pipe.processSession(job)
                 except BaseException as e:
@@ -210,6 +222,32 @@ class OfflinePage(QWidget):
             "cross-channel contamination. Uncheck to use the unfiltered raw signal."
         )
 
+        self._emotion_model = QComboBox()
+        self._emotion_model.setToolTip(
+            "Emotion classifier release used for this run. Filter settings\n"
+            "(bandpass / notch) follow the selected model's config.json."
+        )
+        for info in list_models():
+            self._emotion_model.addItem(info.display_label, info.key)
+        try:
+            default_key = resolve_model(DEFAULT_MODEL).key
+        except ValueError:
+            default_key = None
+        if default_key is not None:
+            idx = self._emotion_model.findData(default_key)
+            if idx >= 0:
+                self._emotion_model.setCurrentIndex(idx)
+
+        model_row = QHBoxLayout()
+        model_row.addWidget(QLabel("Emotion model"))
+        model_row.addWidget(self._emotion_model, 1)
+
+        options_box = QGroupBox("Processing options")
+        options_layout = QVBoxLayout(options_box)
+        options_layout.addWidget(self._skip_video_rotation)
+        options_layout.addWidget(self._apply_nlms)
+        options_layout.addLayout(model_row)
+
         self._run = QPushButton("Run pipeline")
         self._run.clicked.connect(self._run_clicked)
 
@@ -219,8 +257,6 @@ class OfflinePage(QWidget):
 
         actions = QHBoxLayout()
         actions.addWidget(self._run)
-        actions.addWidget(self._skip_video_rotation)
-        actions.addWidget(self._apply_nlms)
         actions.addStretch(1)
         actions.addWidget(self._progress, 1)
 
@@ -234,6 +270,7 @@ class OfflinePage(QWidget):
         layout = QVBoxLayout(self)
         layout.addLayout(top)
         layout.addWidget(input_box)
+        layout.addWidget(options_box)
         layout.addLayout(actions)
         layout.addWidget(log_box, 1)
 
@@ -288,6 +325,7 @@ class OfflinePage(QWidget):
         self._radio_dataset.setEnabled(not running)
         self._skip_video_rotation.setEnabled(not running)
         self._apply_nlms.setEnabled(not running)
+        self._emotion_model.setEnabled(not running)
         self._progress.setVisible(running)
         self.processing_changed.emit(running)
 
@@ -298,13 +336,14 @@ class OfflinePage(QWidget):
 
         skip_rot = self._skip_video_rotation.isChecked()
         apply_nlms = self._apply_nlms.isChecked()
+        emotion_model = self._emotion_model.currentData()
 
         if self._is_dataset_mode():
-            self._run_dataset(skip_rot, apply_nlms)
+            self._run_dataset(skip_rot, apply_nlms, emotion_model)
         else:
-            self._run_single(skip_rot, apply_nlms)
+            self._run_single(skip_rot, apply_nlms, emotion_model)
 
-    def _run_single(self, skip_rot: bool, apply_nlms: bool) -> None:
+    def _run_single(self, skip_rot: bool, apply_nlms: bool, emotion_model: str | None) -> None:
         folder = self._session.text().strip()
         err = session_preflight(folder)
         if err:
@@ -318,16 +357,19 @@ class OfflinePage(QWidget):
             self._insert_log("  (video rotation skipped by user request)\n")
         if not apply_nlms:
             self._insert_log("  (NLMS adaptive decorrelation disabled by user request)\n")
+        if emotion_model:
+            self._insert_log(f"  (emotion model: {self._emotion_model.currentText()})\n")
 
         thread = QThread()
         worker = PipelineWorker(
             folder, None, self._log_queue,
             skip_video_rotation=skip_rot,
             apply_nlms=apply_nlms,
+            emotion_model=emotion_model,
         )
         self._start_worker(thread, worker)
 
-    def _run_dataset(self, skip_rot: bool, apply_nlms: bool) -> None:
+    def _run_dataset(self, skip_rot: bool, apply_nlms: bool, emotion_model: str | None) -> None:
         folder = self._session.text().strip()
         sessions, err = dataset_preflight(folder)
         if err:
@@ -354,12 +396,15 @@ class OfflinePage(QWidget):
             self._insert_log("  (video rotation skipped by user request)\n")
         if not apply_nlms:
             self._insert_log("  (NLMS adaptive decorrelation disabled by user request)\n")
+        if emotion_model:
+            self._insert_log(f"  (emotion model: {self._emotion_model.currentText()})\n")
 
         thread = QThread()
         worker = BatchPipelineWorker(
             sessions, self._log_queue,
             skip_video_rotation=skip_rot,
             apply_nlms=apply_nlms,
+            emotion_model=emotion_model,
         )
         worker.session_start.connect(
             lambda label: self._insert_log(f"\n--- Session {label} ---\n")

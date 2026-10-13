@@ -15,11 +15,12 @@ from __future__ import annotations
 from typing import Iterator, Optional
 
 import numpy as np
-from scipy.signal import butter, sosfiltfilt
+from scipy.signal import butter, filtfilt, iirnotch, sosfiltfilt
 
 from nucleuskit_toolkit.hermes.processor.emotions_processor.constants import (
     NULL_WINDOW_NAN_THRESHOLD,
 )
+
 from .windows import EmotionWindow
 
 
@@ -27,10 +28,11 @@ class StreamingWindowSource:
     """
     Batch filtfilt + windowing source operating on a pre-loaded EMG array.
 
-    Applies a zero-phase (``sosfiltfilt``) Butterworth bandpass to the
-    **full recording** in one pass, then slides a window over the result
-    with configurable length and hop.  Each :class:`EmotionWindow` carries
-    the filtered ``(n_channels, window_samples)`` array.
+    Optionally applies a zero-phase notch, then a zero-phase
+    (``sosfiltfilt``) Butterworth bandpass, to the **full recording** in
+    one pass, then slides a window over the result with configurable length
+    and hop.  Each :class:`EmotionWindow` carries the filtered
+    ``(n_channels, window_samples)`` array.
 
     NaN-invalidated samples (hardware disconnects) are filled with zero
     before filtering so that the filter does not diverge, but the original
@@ -57,7 +59,11 @@ class StreamingWindowSource:
     sampling_rate:
         Acquisition rate in Hz.
     bandpass_low / bandpass_high:
-        Butterworth bandpass cutoffs in Hz.  Use ``15``–``40`` Hz (no NLMS).
+        Butterworth bandpass cutoffs in Hz.  Defaults are the 2.5.0
+        contract (15–40 Hz, no NLMS).  2.6.0 uses 20–110 Hz.
+    notch_hz:
+        Optional power-line notch applied **before** the bandpass (zero-phase
+        ``iirnotch`` + ``filtfilt``).  ``None`` skips the notch.
     filter_order:
         Butterworth SOS filter order.
     """
@@ -71,12 +77,17 @@ class StreamingWindowSource:
         sampling_rate: int = 250,
         bandpass_low: float = 15.0,
         bandpass_high: float = 40.0,
+        notch_hz: Optional[float] = None,
         filter_order: int = 4,
     ) -> None:
         self._timestamps = timestamps
         self.window_sec = window_sec
         self.step_sec = step_sec
         self.sampling_rate = sampling_rate
+        self.bandpass_low = bandpass_low
+        self.bandpass_high = bandpass_high
+        self.notch_hz = notch_hz
+        self.filter_order = filter_order
         self.window_samples = int(window_sec * sampling_rate)
         self.step_samples = int(step_sec * sampling_rate)
 
@@ -86,8 +97,16 @@ class StreamingWindowSource:
         # Fill NaN with 0 so the filter propagates clean zeros rather than NaN.
         clean = np.where(nan_mask, 0.0, eeg_data).astype(np.float64)
 
-        # Zero-phase bandpass applied once across the full recording.
         nyq = sampling_rate / 2.0
+        if notch_hz is not None and notch_hz > 0:
+            if notch_hz >= nyq:
+                raise ValueError(
+                    f"notch_hz {notch_hz} must be below Nyquist {nyq}"
+                )
+            b_notch, a_notch = iirnotch(notch_hz / nyq, 30)
+            clean = filtfilt(b_notch, a_notch, clean, axis=0)
+
+        # Zero-phase bandpass applied once across the full recording.
         sos = butter(
             filter_order,
             [bandpass_low / nyq, bandpass_high / nyq],

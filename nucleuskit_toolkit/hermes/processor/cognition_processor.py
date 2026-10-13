@@ -385,8 +385,6 @@ def compute_eeg_power_bands(df, sf=HermesDataInterface.SAMPLING_RATE, window_dur
                    f"(samples={n_samples}, window={window_samples}). Recording may be too short.")
         return None
 
-    printInfo(f"[cognitionProcessor] Computing power bands: {n_windows} windows over {len(channel_names)} channels")
-
     band_names = ['delta', 'theta', 'alpha', 'beta']
     rows = []
 
@@ -650,7 +648,6 @@ def save_filtered_eeg_csv(filtered_df, timestamps, out_path):
         out_df = filtered_df.copy()
         out_df.insert(0, 'Timestamp', ts)
         out_df.to_csv(out_path, index=False)
-        printInfo(f"[cognitionProcessor] Filtered EEG saved to {out_path}")
     except Exception as exc:
         printWarning(f"[cognitionProcessor] save_filtered_eeg_csv failed: {exc}")
 
@@ -747,8 +744,6 @@ def save_eeg_artefact_plot(filtered_df, timestamps, rejected_mask, out_path):
         plt.tight_layout()
         fig.savefig(out_path, dpi=130, bbox_inches='tight')
         plt.close(fig)
-
-        printInfo(f"[cognitionProcessor] Artefact plot saved to {out_path}")
     except Exception as exc:
         printWarning(f"[cognitionProcessor] save_eeg_artefact_plot failed: {exc}")
 
@@ -919,8 +914,6 @@ def computeCognitiveIndexes(recpath, apply_nlms: bool = True):
                 printError("[cognitionProcessor] HermesDataInterface.getEEG returned None — no EEG data available")
                 return
 
-            printInfo(f"[cognitionProcessor] EEG loaded: {len(eegData)} samples, columns: {list(eegData.columns)}")
-
             sf = HermesDataInterface.SAMPLING_RATE
 
             if original_timestamps is None:
@@ -986,16 +979,13 @@ def computeCognitiveIndexes(recpath, apply_nlms: bool = True):
                 return
 
             os.makedirs(features_dir, exist_ok=True)
-            printInfo(f"[cognitionProcessor] Saving power bands to {powerbands_path}...")
             powerbands.to_csv(powerbands_path, index=False)
 
             if artefact_stats is not None:
                 artefact_stats.to_csv(artefact_path, index=False)
-                printInfo(f"[cognitionProcessor] Artefact stats saved to {artefact_path}")
 
             if epoch_metrics is not None:
                 epoch_metrics.to_csv(epoch_metrics_path, index=False)
-                printInfo(f"[cognitionProcessor] Epoch metrics saved to {epoch_metrics_path}")
 
         printInfo("[cognitionProcessor] Computing cognitive indexes...")
         result, temporal_bands = compute_cognitive_indexes(powerbands)
@@ -1006,12 +996,10 @@ def computeCognitiveIndexes(recpath, apply_nlms: bool = True):
         if temporal_bands is not None:
             os.makedirs(features_dir, exist_ok=True)
             temporal_bands.to_csv(temporal_bp_path, index=False)
-            printInfo(f"[cognitionProcessor] Temporal band powers saved to {temporal_bp_path}")
 
         result = _simple_resample(result, target_interval=0.5)
 
         os.makedirs(os.path.dirname(cognitive_path), exist_ok=True)
-        printInfo(f"[cognitionProcessor] Writing results to {cognitive_path}...")
         result.to_csv(cognitive_path, index=False)
 
         printInfo("[cognitionProcessor] Cognitive index computation completed")

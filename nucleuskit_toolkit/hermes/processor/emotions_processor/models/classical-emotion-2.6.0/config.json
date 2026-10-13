@@ -1,0 +1,51 @@
+{
+  "dataset_dir": "dataset",
+  "labels": [
+    "NEUTRAL",
+    "HAPPINESS",
+    "ANGER",
+    "DISGUST",
+    "FEAR",
+    "SURPRISE",
+    "SADNESS",
+    "CONTEMPT_LEFT",
+    "CONTEMPT_RIGHT"
+  ],
+  "classifier": "logistic_regression",
+  "scale_features": true,
+  "seed": 42,
+  "classifier_params": {
+    "C": 1.0,
+    "max_iter": 1000,
+    "solver": "lbfgs"
+  },
+  "split_strategy": "loso",
+  "feature_set": "extended_nm_a",
+  "amplitude_calibration": "gated_prior",
+  "gate_k": 2.0,
+  "prior_n0": 10.0,
+  "suppress_fear": true,
+  "bandpass_hz": [
+    20.0,
+    110.0
+  ],
+  "notch_hz": 60.0,
+  "require_label_match": true,
+  "use_instruction_label": true,
+  "input_channels": [
+    "Supraorbital_L",
+    "Supraorbital_R",
+    "Zygomatic_L",
+    "Zygomatic_R",
+    "Temporal_EEG",
+    "Glabella",
+    "Temporal_R",
+    "Nasolabial"
+  ],
+  "drop_channels": [],
+  "sample_rate_hz": 250,
+  "window_samples": 500,
+  "architecture": "flat",
+  "apply_nlms": false,
+  "merge_contempt": true
+}

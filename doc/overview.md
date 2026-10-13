@@ -74,8 +74,8 @@ A processed session folder has the following canonical structure:
 │   │   ├── epochMetrics.csv            # Per-epoch signal metrics for threshold calibration
 │   │   └── eegArtefactPlot.png         # Filtered EEG waveform with rejected regions highlighted
 │   ├── emotions/
-│   │   ├── rmsSignals.csv              # Per-window per-channel EMG RMS
-│   │   └── emotionClassifierInputs.csv # L2-normed RMS + classifier predictions
+│   │   ├── rmsSignals.csv              # Per-window RMS (HEAD_R_RMS … NOSE_RMS)
+│   │   └── emotionClassifierInputs.csv # Classifier features + L2-normed RMS
 │   └── events/
 │       ├── processedFeatureEvents.csv
 │       ├── processedWebFeatureEvents.csv

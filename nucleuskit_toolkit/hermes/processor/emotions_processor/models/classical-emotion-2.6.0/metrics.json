@@ -1,0 +1,14 @@
+{
+  "protocol": "Gprior_field",
+  "mean_accuracy": 0.47532057777224673,
+  "std_accuracy": 0.14089532088273365,
+  "mean_fear_recall": 0.11331018518518517,
+  "mean_sadness_recall": 0.19576719576719573,
+  "n_folds": 24,
+  "p25_mean_accuracy": 0.43374459295415807,
+  "sparse5_mean_accuracy": 0.4655144218086691,
+  "sparse5_sadness_recall": 0.18336640211640212,
+  "note": "Protocol LOSO from reports/calibration/release_folds.csv. Winner selected among several variants on these 24 folds (mild selection optimism). Fear recall is near chance on every variant.",
+  "n_train_windows": 1811,
+  "dataset_version": "hermes-7ccc7bf4f8e6"
+}

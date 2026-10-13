@@ -2,8 +2,9 @@
 Emotions Processor
 
 Computes emotional states from 8-channel surface EMG recorded by the Hermes
-device using the classical-emotion 2.5.0 model (logistic regression,
-``extended_nm_a`` feature set, exp-0040).
+device.  The default model is classical-emotion 2.5.0 (logistic regression,
+``extended_nm_a`` feature set).  Other vendored releases (e.g. 2.6.0) are
+selected by registry key.
 
 Public API::
 
@@ -14,8 +15,9 @@ Public API::
 
 Model selection::
 
-    computeEmotions(recpath)                              # default: classical-emotion
-    computeEmotions(recpath, model_name="classical-emotion")  # explicit
+    computeEmotions(recpath)                              # default: classical-emotion (2.5.0)
+    computeEmotions(recpath, model_name="classical-emotion")  # alias for 2.5.0
+    computeEmotions(recpath, model_name="classical-emotion-2.6.0")
 
 Architecture overview:
 
@@ -30,7 +32,7 @@ Signal path::
 
     raw 8-ch EXG
         → hardware invalidation (NaN)
-        → 15–40 Hz bandpass (4th-order Butterworth, sosfiltfilt on full recording)
+        → release-specific notch + bandpass (from config.json; 2.5.0 is 15–40 Hz)
         → 2.0 s windows, 0.5 s hop (500 samples at 250 Hz)
         → set_subject_context (per-subject z-score calibration on valid windows)
         → predict each window (25-D feature vector → logistic regression)

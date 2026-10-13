@@ -13,10 +13,14 @@ from nucleuskit_toolkit.hermes.processor.rms_ops import (
     append_operation,
     ensure_baseline_snapshot,
 )
+from nucleuskit_toolkit.hermes.rms_columns import (
+    CANONICAL_CHANNEL_NAMES,
+    as_output_rms_frame,
+    normalize_rms_dataframe,
+)
 
 from .paths import emotions_dir, report_dir, report_html, working_csv
 from .report import write_comparison_report
-from nucleuskit_toolkit.hermes.rms_columns import CANONICAL_CHANNEL_NAMES, normalize_rms_dataframe
 
 
 def _resolve_models_dir(models_dir: Optional[Path]) -> Path:
@@ -120,6 +124,7 @@ def fix_session(
     out = np.concatenate((timestamps.reshape(-1, 1), data), axis=1)
     repaired = pd.DataFrame(out, columns=columns)
     repaired = repaired.interpolate()
+    repaired = as_output_rms_frame(repaired)
 
     repaired.to_csv(work, index=False)
 

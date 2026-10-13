@@ -43,17 +43,40 @@ class BasePipeline(ABC):
         return self.pipeName
 
 
+_STEP_LOG = {
+    "prepareDirectory": "[pipeline] Preparing session folders",
+    "ensure_session_video_rotated_180": "[pipeline] Checking session video orientation",
+    "extractMetaInfo": "[pipeline] Reading recording length",
+    "computeHeartDynamics": "[pipeline] Computing heart dynamics",
+    "computeArousal": "[pipeline] Computing arousal",
+    "computeCognitiveIndexes": "[pipeline] Computing cognitive indexes",
+    "computeEmotions": "[pipeline] Computing emotions",
+    "eventProcessor": "[pipeline] Processing events",
+    "seedPlaybackAnnotations": "[pipeline] Seeding playback annotations",
+    "processUWB": "[pipeline] Processing UWB position",
+    "processGPS": "[pipeline] Processing GPS",
+}
+
+
 class NucleusKitProcessingToolkit(BasePipeline):
     """
     Offline analytics pipeline for processing session data from a local folder.
     """
 
-    def __init__(self, configuration=None, *, skip_video_rotation: bool = False, apply_nlms: bool = True):
+    def __init__(
+        self,
+        configuration=None,
+        *,
+        skip_video_rotation: bool = False,
+        apply_nlms: bool = True,
+        emotion_model: str | None = None,
+    ):
         super().__init__(configuration)
         self.plot_data = False
         self.processingSteps = []
         self._skip_video_rotation = skip_video_rotation
         self._apply_nlms = apply_nlms
+        self._emotion_model = emotion_model
 
         if configuration is None:
             self.configureAsDefault()
@@ -72,7 +95,8 @@ class NucleusKitProcessingToolkit(BasePipeline):
         pov = resolve_pov_settings(getattr(jobDetails, "pov_config_json", None))
         screen_id = jobDetails.screenID or (pov.screen_id if pov else None)
 
-        printInfo("[NucleusKitProcessingToolkit] Converting movie")
+        printInfo(f"[pipeline] Starting {self.pipeName}")
+        printInfo("[pipeline] Converting POV movie")
         try:
             if screen_id and pov and pov.data_root and pov.ffmpeg_bin_dir:
                 convertPOVMovieClip(screen_id, pov.data_root, pov.ffmpeg_bin_dir)
@@ -84,6 +108,7 @@ class NucleusKitProcessingToolkit(BasePipeline):
             printWarning(f"[NucleusKitProcessingToolkit] WARNING: Converting movie failed: {e}")
 
         for processor in self.processingSteps:
+            printInfo(_STEP_LOG.get(processor.__name__, f"[pipeline] {processor.__name__}"))
             try:
                 processor(cachepath)
             except BaseException as e:
@@ -92,6 +117,7 @@ class NucleusKitProcessingToolkit(BasePipeline):
                 )
                 printError(f"[NucleusKitProcessingToolkit] Traceback:\n{traceback.format_exc()}")
 
+        printInfo("[pipeline] Session processing finished")
         return True
 
     @staticmethod
@@ -105,36 +131,22 @@ class NucleusKitProcessingToolkit(BasePipeline):
     def configureAsDefault(self):
         self.pipeName = "HermesDevPipe"
         self.processingSteps = []
-        printInfo(f"[NucleusKitProcessingToolkit] Pipeline: {self.pipeName}")
-        printInfo("[NucleusKitProcessingToolkit] Assembling toolkit")
-
-        printInfo("- Adding preparation of directory")
         self.processingSteps.append(prepareDirectory)
-        if self._skip_video_rotation:
-            printInfo("- Skipping session video 180° rotation (disabled by caller)")
-        else:
-            printInfo("- Adding one-time session video 180° rotation (rawData/video.mp4)")
+        if not self._skip_video_rotation:
             self.processingSteps.append(ensure_session_video_rotated_180)
-        printInfo("- Adding extraction of meta information")
         self.processingSteps.append(extractMetaInfo)
-
-        printInfo("- Adding physiological metrics computation")
         self.processingSteps.append(computeHeartDynamics)
         self.processingSteps.append(computeArousal)
-
-        printInfo("- Adding cognitive metrics computation")
         self.processingSteps.append(self._bind(computeCognitiveIndexes, apply_nlms=self._apply_nlms))
-
-        printInfo("- Adding emotional metrics computation")
-        self.processingSteps.append(self._bind(computeEmotions, apply_nlms=self._apply_nlms))
-
-        printInfo("- Adding event processing")
+        self.processingSteps.append(
+            self._bind(
+                computeEmotions,
+                apply_nlms=self._apply_nlms,
+                model_name=self._emotion_model,
+            )
+        )
         self.processingSteps.append(eventProcessor)
-
-        printInfo("- Adding playback annotation seeding from events.csv")
         self.processingSteps.append(seedPlaybackAnnotations)
-
-        printInfo("- Adding position processing")
         self.processingSteps.append(processUWB)
         self.processingSteps.append(processGPS)
 

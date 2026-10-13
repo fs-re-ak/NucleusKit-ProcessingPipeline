@@ -1,0 +1,59 @@
+{
+  "version": "2.6.0",
+  "recipe": "gated_p95_field_prior",
+  "gate_k": 2.0,
+  "n0": 10.0,
+  "band_hz": [
+    20.0,
+    110.0
+  ],
+  "notch_hz": 60.0,
+  "n_sources": 57,
+  "contexts": [
+    "2026-08-MCQ",
+    "2026-Odyssey",
+    "MUTEK"
+  ],
+  "rms_channels": [
+    "Supraorbital_L",
+    "Supraorbital_R",
+    "Zygomatic_L",
+    "Zygomatic_R",
+    "Temporal_EEG",
+    "Glabella",
+    "Temporal_R",
+    "Nasolabial"
+  ],
+  "wl_channels": [
+    "Supraorbital_L",
+    "Supraorbital_R",
+    "Zygomatic_L",
+    "Zygomatic_R",
+    "Glabella",
+    "Temporal_R",
+    "Nasolabial"
+  ],
+  "prior_rms": [
+    7.227954454163981,
+    7.510994865055876,
+    7.764592119119822,
+    7.008240436722824,
+    6.878640139109899,
+    9.53240008071771,
+    7.28844459970975,
+    7.4512615518350955
+  ],
+  "prior_wl": [
+    5.753109263171558,
+    5.438761568404654,
+    6.007217290640748,
+    6.19060967795227,
+    6.5810620886203175,
+    5.769520231502168,
+    6.297763323327147
+  ],
+  "prior_rms_median": 7.369853075772422,
+  "prior_wl_median": 6.007217290640748,
+  "mean_expressive_fraction": 0.12295951678790334,
+  "notes": "Population median of gated p95 / rest median on quality-kept MCQ / Odyssey / MUTEK windows. Required at inference."
+}

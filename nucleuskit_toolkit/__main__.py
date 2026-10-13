@@ -10,6 +10,10 @@ matplotlib.use("Agg")
 
 
 def main(argv: list[str] | None = None) -> int:
+    from nucleuskit_toolkit.hermes.processor.emotions_processor.models import (
+        DEFAULT_MODEL,
+        available_model_keys,
+    )
     from nucleuskit_toolkit.logging_utils import configure_logging
 
     configure_logging()
@@ -27,6 +31,16 @@ def main(argv: list[str] | None = None) -> int:
         metavar="JSON",
         help="Optional POV / ffmpeg JSON (merged after cwd defaults).",
     )
+
+    parser.add_argument(
+        "--emotion-model",
+        metavar="NAME",
+        default=DEFAULT_MODEL,
+        help=(
+            "Emotion model registry key "
+            f"(default: {DEFAULT_MODEL}). Available: {', '.join(available_model_keys())}."
+        ),
+    )
     ns = parser.parse_args(argv)
 
     if ns.session:
@@ -34,7 +48,7 @@ def main(argv: list[str] | None = None) -> int:
         from nucleuskit_toolkit.session_job import session_job_from_folder
 
         job = session_job_from_folder(ns.session, pov_config_json=ns.config)
-        pipe = NucleusKitProcessingToolkit(None)
+        pipe = NucleusKitProcessingToolkit(None, emotion_model=ns.emotion_model)
         pipe.processSession(job)
         return 0
 

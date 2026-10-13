@@ -44,6 +44,9 @@ class PipelineResult:
     model_input_rows: list = field(default_factory=list)
     """One row per **valid** window: ``[timestamp, *feature_vector, label, confidence]``."""
 
+    valid_channel_rms: list = field(default_factory=list)
+    """Raw per-channel RMS for each valid window, same order as ``model_input_rows``."""
+
     feature_columns: list[str] = field(default_factory=list)
     """Feature column names matching ``model_input_rows`` columns (after Timestamp)."""
 
@@ -102,6 +105,9 @@ def run_window_pipeline(
                 [window.timestamp]
                 + win_result.model_features.tolist()
                 + [win_result.label, float(win_result.confidence)]
+            )
+            result.valid_channel_rms.append(
+                np.asarray(win_result.channel_rms, dtype=np.float64).reshape(-1)
             )
 
     return result
