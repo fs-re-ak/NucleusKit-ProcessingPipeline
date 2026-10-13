@@ -163,11 +163,13 @@ class TestImportIsolation:
         model_25 = get_model("classical-emotion-2.5.0")
         assert model_25.model_version == "2.5.0"
         assert model_25.preprocess_spec.bandpass_high == 40.0
+        assert model_25.emotions_csv_uses_argmax is False
 
         model_26 = get_model("classical-emotion-2.6.0")
         assert model_26.model_version == "2.6.0"
         assert model_26.preprocess_spec.notch_hz == 60.0
         assert model_26.preprocess_spec.bandpass_high == 110.0
+        assert model_26.emotions_csv_uses_argmax is True
 
         import exg_emotion
 

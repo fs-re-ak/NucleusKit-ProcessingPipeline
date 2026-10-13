@@ -9,13 +9,14 @@
 
 ## 1. Purpose
 
-The emotions pipeline infers moment-to-moment facial emotion probabilities from
+The emotions pipeline infers moment-to-moment facial emotion intensity from
 8-channel surface EMG recorded by the Hermes device.  Classification defaults
 to **classical-emotion 2.5.0** — a logistic-regression model trained on the
 `extended_nm_a` feature set (exp-0040).  Other vendored releases (for example
 2.6.0) can be selected from offline processing or via
 `computeEmotions(..., model_name=...)`.  The output is a set of per-emotion
-probability time-series sampled at 2 Hz.
+intensity time-series sampled at 2 Hz.  2.5.0 writes class probabilities;
+2.6.0 writes a one-hot of the winning class.
 
 ---
 
@@ -237,14 +238,22 @@ calibration uses the actual per-subject statistics for every recomputation.
 | Column | Unit / range | Description |
 |--------|-------------|-------------|
 | `Timestamp` | seconds | Seconds from recording start, 0.5 s steps |
-| `Neutral` | 0–1 probability | — |
-| `Happiness` | 0–1 probability | — |
-| `Anger` | 0–1 probability | — |
-| `Surprise` | 0–1 probability | — |
-| `Contempt` | 0–1 probability | — |
-| `Disgust` | 0–1 probability | — |
-| `Fear` | 0–1 probability | — |
-| `Sadness` | 0–1 probability | — |
+| `Neutral` | 0–1 | Emotion intensity |
+| `Happiness` | 0–1 | Emotion intensity |
+| `Anger` | 0–1 | Emotion intensity |
+| `Surprise` | 0–1 | Emotion intensity |
+| `Contempt` | 0–1 | Emotion intensity |
+| `Disgust` | 0–1 | Emotion intensity |
+| `Fear` | 0–1 | Emotion intensity |
+| `Sadness` | 0–1 | Emotion intensity |
+
+For **2.5.0**, each intensity is the class probability (the row sums to 1).
+For **2.6.0**, intensity is the argmax: the winning class is `1` and every
+other class is `0`.  The winning class is the model's emitted label (argmax
+after the contempt merge; if that argmax is fear, the next-best class is
+used and fear stays `0`).  `PredictedConfidence` in
+`emotionClassifierInputs.csv` remains the winning-class probability for
+both releases.
 
 `NaN` rows correspond to null windows.  Written with `na_rep="NULL"`.
 

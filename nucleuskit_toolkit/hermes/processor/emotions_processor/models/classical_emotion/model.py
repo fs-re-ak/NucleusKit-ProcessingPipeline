@@ -225,6 +225,17 @@ class ClassicalEmotionAdapter(EmotionModel):
         return self._predictor.model_version
 
     @property
+    def emotions_csv_uses_argmax(self) -> bool:
+        """2.6.0 writes the winning class as intensity 1 and every other class as 0.
+
+        The winning class is the model's emitted label: argmax after the
+        contempt merge, with fear replaced by the next-best class when fear
+        suppression is on.  ``emotionClassifierInputs.csv`` still stores the
+        raw winning-class probability as ``PredictedConfidence``.
+        """
+        return self.model_version == "2.6.0"
+
+    @property
     def release_dir(self) -> Path:
         """Release directory this adapter loaded."""
         return self._release_dir

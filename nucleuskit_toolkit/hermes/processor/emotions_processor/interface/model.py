@@ -119,6 +119,15 @@ class EmotionModel(ABC):
         return DEFAULT_PREPROCESS_SPEC
 
     @property
+    def emotions_csv_uses_argmax(self) -> bool:
+        """When true, ``Emotions.csv`` stores a one-hot of the winning class.
+
+        The default writes the per-class probability vector.  Releases that
+        treat emotion intensity as the most likely class override this.
+        """
+        return False
+
+    @property
     @abstractmethod
     def feature_columns(self) -> list[str]:
         """Ordered feature names matching the model input vector."""

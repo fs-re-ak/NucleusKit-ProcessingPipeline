@@ -269,6 +269,45 @@ class TestRunWindowPipeline:
         result, model = self._run()
         assert result.feature_columns == model.feature_columns
 
+    def test_argmax_model_writes_one_hot_intensity(self):
+        """Argmax models write 1 on the winning class and 0 elsewhere.
+
+        Classifier-input confidence stays the winning-class probability.
+        """
+
+        class _ArgmaxModel(_FixedModel):
+            @property
+            def emotions_csv_uses_argmax(self) -> bool:
+                return True
+
+            def predict(self, samples: np.ndarray) -> EmotionWindowResult:
+                base = super().predict(samples)
+                probabilities = {column: 0.0 for column in EMOTION_COLUMNS}
+                probabilities["Neutral"] = 0.2
+                probabilities["Happiness"] = 0.55
+                probabilities["Anger"] = 0.25
+                return EmotionWindowResult(
+                    probabilities=probabilities,
+                    label="Happiness",
+                    confidence=0.55,
+                    channel_rms=base.channel_rms,
+                    model_features=base.model_features,
+                )
+
+        ts, eeg = _make_eeg(6.0)
+        source = StreamingWindowSource(eeg, timestamps=ts)
+        result = run_window_pipeline(source, _ArgmaxModel())
+        happiness_idx = 1 + EMOTION_COLUMNS.index("Happiness")
+        valid = [row for row in result.emotion_rows if not np.isnan(row[1])]
+        assert valid
+        for row in valid:
+            assert row[happiness_idx] == 1.0
+            assert sum(row[1:]) == 1.0
+            assert set(row[1:]) == {0.0, 1.0}
+        assert result.model_input_rows
+        assert result.model_input_rows[0][-2] == "Happiness"
+        assert result.model_input_rows[0][-1] == 0.55
+
 
 # ---------------------------------------------------------------------------
 # ClassicalEmotionAdapter smoke tests (real model load)

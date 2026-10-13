@@ -25,7 +25,10 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from nucleuskit_toolkit.hermes.processor.emotions_processor.constants import EMOTION_COLUMNS
-from nucleuskit_toolkit.hermes.processor.emotions_processor.interface.model import EmotionModel
+from nucleuskit_toolkit.hermes.processor.emotions_processor.interface.model import (
+    EmotionModel,
+    EmotionWindowResult,
+)
 from nucleuskit_toolkit.hermes.processor.emotions_processor.interface.windows import WindowSource
 
 
@@ -34,7 +37,12 @@ class PipelineResult:
     """Collected rows ready for CSV serialisation."""
 
     emotion_rows: list = field(default_factory=list)
-    """One row per window: ``[timestamp, *per_emotion_probabilities]``."""
+    """One row per window: ``[timestamp, *per_emotion_intensity]``.
+
+    Intensity is the class probability, unless the model sets
+    ``emotions_csv_uses_argmax``.  In that case the winning class is ``1.0``
+    and every other class is ``0.0``.
+    """
 
     rms_rows: list = field(default_factory=list)
     """One row per window: ``[timestamp, *per_channel_rms]``.
@@ -49,6 +57,25 @@ class PipelineResult:
 
     feature_columns: list[str] = field(default_factory=list)
     """Feature column names matching ``model_input_rows`` columns (after Timestamp)."""
+
+
+def _emotion_intensities(win_result: EmotionWindowResult, model: EmotionModel) -> list[float]:
+    """Per-class values written to ``Emotions.csv`` for one valid window.
+
+    Probability mode copies the classifier distribution.  Argmax mode writes
+    ``1.0`` on the emitted label and ``0.0`` on every other column.
+    """
+    if not model.emotions_csv_uses_argmax:
+        return [float(win_result.probabilities.get(c, 0.0)) for c in EMOTION_COLUMNS]
+
+    if win_result.label in EMOTION_COLUMNS:
+        winner = win_result.label
+    else:
+        winner = max(
+            EMOTION_COLUMNS,
+            key=lambda column: float(win_result.probabilities.get(column, 0.0)),
+        )
+    return [1.0 if column == winner else 0.0 for column in EMOTION_COLUMNS]
 
 
 def run_window_pipeline(
@@ -95,8 +122,7 @@ def run_window_pipeline(
         else:
             win_result = model.predict(window.samples)
             result.emotion_rows.append(
-                [window.timestamp]
-                + [float(win_result.probabilities.get(c, 0.0)) for c in EMOTION_COLUMNS]
+                [window.timestamp] + _emotion_intensities(win_result, model)
             )
             result.rms_rows.append(
                 np.concatenate([[window.timestamp], win_result.channel_rms])
