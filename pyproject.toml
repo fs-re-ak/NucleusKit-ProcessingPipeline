@@ -39,24 +39,6 @@ where = ["."]
 include = ["nucleuskit_toolkit*"]
 
 [tool.setuptools.package-data]
-"nucleuskit_toolkit.hermes.processor.emotions_processor.models.classical-emotion-2.5.0" = [
-    "pipeline.joblib",
-    "manifest.json",
-    "config.json",
-    "labels.json",
-    "metrics.json",
-    "exg_emotion/**/*",
-]
-"nucleuskit_toolkit.hermes.processor.emotions_processor.models.classical-emotion-2.6.0" = [
-    "pipeline.joblib",
-    "manifest.json",
-    "config.json",
-    "labels.json",
-    "metrics.json",
-    "prior_ratios.json",
-    "exg_emotion/**/*",
-]
-"nucleuskit_toolkit.hermes.tools.channel_fixer" = ["models/*.joblib"]
 "nucleuskit_toolkit.ui.resources.branding" = ["*.png"]
 
 [tool.ruff]
