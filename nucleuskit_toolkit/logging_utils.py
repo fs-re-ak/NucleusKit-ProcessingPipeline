@@ -6,6 +6,7 @@ import logging
 import sys
 
 _LOGGER = logging.getLogger("nucleuskit_toolkit")
+_CORE_LOGGER = logging.getLogger("reak_core")  # processing messages of re-ak-core
 
 
 class _AnsiAwareHandler(logging.StreamHandler):
@@ -34,15 +35,16 @@ class _AnsiAwareHandler(logging.StreamHandler):
 
 
 def configure_logging(level: int = logging.INFO) -> None:
-    """Attach a single stream handler if none exist (idempotent)."""
-    if _LOGGER.handlers:
-        _LOGGER.setLevel(level)
-        return
-    handler = _AnsiAwareHandler(sys.stdout)
-    handler.setFormatter(logging.Formatter("%(message)s"))
-    _LOGGER.addHandler(handler)
-    _LOGGER.setLevel(level)
-    _LOGGER.propagate = False
+    """Attach a single stream handler to the toolkit and re-ak-core loggers if none exist (idempotent)."""
+    for logger in (_LOGGER, _CORE_LOGGER):
+        if logger.handlers:
+            logger.setLevel(level)
+            continue
+        handler = _AnsiAwareHandler(sys.stdout)
+        handler.setFormatter(logging.Formatter("%(message)s"))
+        logger.addHandler(handler)
+        logger.setLevel(level)
+        logger.propagate = False
 
 
 def printInfo(message: object) -> None:
