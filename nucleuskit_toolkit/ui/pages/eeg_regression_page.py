@@ -18,7 +18,6 @@ import traceback
 
 import numpy as np
 import pandas as pd
-
 from PySide6.QtCore import QObject, QThread, QTimer, Signal, Slot
 from PySide6.QtGui import QTextCursor
 from PySide6.QtWidgets import (
@@ -33,22 +32,22 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
-from nucleuskit_toolkit.hermes.processor.cognition_processor import (
+from reak_core.constants import EXG_SAMPLING_RATE
+from reak_core.eeg.cognition import (
     GAP_THRESHOLD_S,
     bandpass_filter,
     compute_cognitive_indexes,
     compute_eeg_power_bands,
-    regress_noise_channels,
     reject_temporal_artefacts,
     save_eeg_artefact_plot,
     save_filtered_eeg_csv,
-    _simple_resample,
 )
-from nucleuskit_toolkit.hermes.processor.data_interface import HermesDataInterface
-from nucleuskit_toolkit.logging_utils import printError, printInfo, printWarning
-from nucleuskit_toolkit.ui.offline_job import QueueTextWriter, eeg_regression_preflight
+from reak_core.io.exg import derive_eeg_channels, load_exg, mark_invalid
+from reak_core.sync.resample import resample_to_timebase
 
+from nucleuskit_toolkit.logging_utils import printError, printInfo, printWarning
+from nucleuskit_toolkit.tools.eeg_regression import reference_channels, regress_noise_channels
+from nucleuskit_toolkit.ui.offline_job import QueueTextWriter, eeg_regression_preflight
 
 # ---------------------------------------------------------------------------
 # Background worker
@@ -86,7 +85,7 @@ class _EegRegressionWorker(QObject):
 
     def _process(self) -> None:
         recpath  = self._folder
-        sf       = HermesDataInterface.SAMPLING_RATE
+        sf       = EXG_SAMPLING_RATE
         features_dir     = os.path.join(recpath, "features", "cognition")
         cognitive_path   = os.path.join(recpath, "results", "Cognition.csv")
         powerbands_path  = os.path.join(features_dir, "powerBands.csv")
@@ -104,11 +103,14 @@ class _EegRegressionWorker(QObject):
 
         # -- Load EEG ------------------------------------------------------------
         printInfo("[eegRegressionTool] Loading EEG data")
-        original_timestamps, eeg_data = HermesDataInterface(recpath).getEEG()
-
-        if eeg_data is None:
-            printError("[eegRegressionTool] HermesDataInterface.getEEG returned None — aborting")
+        recording = load_exg(recpath)
+        if recording is None or recording.data.shape[1] < 5:
+            printError("[eegRegressionTool] No usable EXG data — aborting")
             raise RuntimeError("No EEG data available.")
+        # Invalid raw samples (non-finite or full scale) become NaN, as in re-ak-core's cognition.
+        raw = mark_invalid(recording.data)
+        original_timestamps = recording.timestamps
+        eeg_data = derive_eeg_channels(raw)
 
         printInfo(f"[eegRegressionTool] EEG loaded: {len(eeg_data)} samples, "
                   f"columns: {list(eeg_data.columns)}")
@@ -140,7 +142,7 @@ class _EegRegressionWorker(QObject):
 
         # -- Load + filter reference channels ------------------------------------
         printInfo("[eegRegressionTool] Loading EMG reference channels")
-        _, ref_data = HermesDataInterface(recpath).getReferenceChannels()
+        ref_data = reference_channels(raw)
 
         if ref_data is not None:
             printInfo("[eegRegressionTool] Bandpass filtering reference channels")
@@ -227,7 +229,7 @@ class _EegRegressionWorker(QObject):
             temporal_bands.to_csv(temporal_bp_path, index=False)
             printInfo(f"[eegRegressionTool] Temporal band powers saved to {temporal_bp_path}")
 
-        result = _simple_resample(result, target_interval=0.5)
+        result = resample_to_timebase(result, target_interval=0.5)
 
         os.makedirs(os.path.join(recpath, "results"), exist_ok=True)
         result.to_csv(cognitive_path, index=False)

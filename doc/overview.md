@@ -1,5 +1,7 @@
 ﻿# NucleusKit Processing Toolkit — Technical Overview
 
+> **Since Nucleus-Kit 2.0.0** `nucleuskit_toolkit/pipeline.py` runs re-ak-core's default pipeline (`reak_core.pipeline.Pipeline.default()`) and adds the local steps: POV movie conversion, video rotation (after `prepare`), UWB and GPS (at the end). The step descriptions below are those of 1.1.
+
 **Package:** `nucleuskit_toolkit`  
 **Entry point:** `python -m nucleuskit_toolkit` (GUI) or `--session <dir>` (headless CLI)  
 **Authors:** Fred Simard — RE-AK Technologies Inc., Winter/Spring 2026

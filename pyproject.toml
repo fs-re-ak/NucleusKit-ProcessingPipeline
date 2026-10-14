@@ -4,20 +4,19 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nucleuskit-toolkit"
-version = "0.1.0"
+version = "2.0.0"
 description = "Nucleus-Kit offline processing toolkit (Hermes EEG/EMG, Shimmer PPG/EDA)"
 readme = "README.md"
+license = { text = "GPL-3.0-or-later" }
 requires-python = ">=3.10"
 dependencies = [
-    "numpy>=1.24",
-    "pandas>=2.0",
-    "scipy>=1.10",
-    "matplotlib>=3.7",
+    "re-ak-core @ git+https://github.com/fs-re-ak/re-ak-core.git@1.0.0a1",
+    "numpy>=2.0",
+    "pandas>=2.2",
+    "scipy>=1.13",
+    "matplotlib>=3.8",
     "opencv-python>=4.8",
-    "joblib>=1.3",
-    "scikit-learn>=1.3",
-    "cvxopt>=1.3",
-    "neurokit2>=0.2",
+    "scikit-learn==1.6.*",
 ]
 
 [project.optional-dependencies]
@@ -41,24 +40,6 @@ where = ["."]
 include = ["nucleuskit_toolkit*"]
 
 [tool.setuptools.package-data]
-"nucleuskit_toolkit.hermes.processor.emotions_processor.models.classical-emotion-2.5.0" = [
-    "pipeline.joblib",
-    "manifest.json",
-    "config.json",
-    "labels.json",
-    "metrics.json",
-    "exg_emotion/**/*",
-]
-"nucleuskit_toolkit.hermes.processor.emotions_processor.models.classical-emotion-2.6.0" = [
-    "pipeline.joblib",
-    "manifest.json",
-    "config.json",
-    "labels.json",
-    "metrics.json",
-    "prior_ratios.json",
-    "exg_emotion/**/*",
-]
-"nucleuskit_toolkit.hermes.tools.channel_fixer" = ["models/*.joblib"]
 "nucleuskit_toolkit.ui.resources.branding" = ["*.png"]
 
 [tool.ruff]

@@ -12,13 +12,13 @@ import numpy as np
 import pyqtgraph as pg
 from PySide6.QtCore import QTimer
 from PySide6.QtWidgets import QVBoxLayout, QWidget
-from scipy.signal import butter, lfilter, lfilter_zi
-
-from nucleuskit_toolkit.hermes.constants import HermesConstants
-from nucleuskit_toolkit.hermes.realtime.nlms_filter import (
+from reak_core.eeg.nlms import (
     CausalNLMSFilter,
     build_default_predictor_mask,
 )
+from scipy.signal import butter, lfilter, lfilter_zi
+
+from nucleuskit_toolkit.hermes.constants import HermesConstants
 
 pg.setConfigOptions(foreground="k")
 
