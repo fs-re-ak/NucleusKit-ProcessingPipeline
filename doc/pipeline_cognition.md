@@ -1,5 +1,7 @@
 # Cognition Pipeline — EEG-based Cognitive Indexes
 
+> **Since Nucleus-Kit 2.0.0** this processing is done by re-ak-core (`reak_core.eeg`). This page describes Nucleus-Kit 1.1 and will move to re-ak-core's documentation; the module paths below are those of 1.1. Every change in the results since 1.1 is listed in re-ak-core's [CHANGELOG](https://github.com/fs-re-ak/re-ak-core/blob/main/CHANGELOG.md).
+
 **Module:** `nucleuskit_toolkit/hermes/processor/cognition_processor.py`  
 **Entry point:** `computeCognitiveIndexes(recpath, apply_nlms=True)`  
 **Primary output:** `results/Cognition.csv`  
