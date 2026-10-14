@@ -14,9 +14,9 @@ from PySide6.QtWidgets import (
     QPushButton,
     QVBoxLayout,
 )
+from reak_core.eeg.nlms import build_default_predictor_mask
 
 from nucleuskit_toolkit.hermes.constants import HermesConstants
-from nucleuskit_toolkit.hermes.realtime.nlms_filter import build_default_predictor_mask
 
 
 class NlmsPredictorConfigDialog(QDialog):

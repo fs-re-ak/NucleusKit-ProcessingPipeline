@@ -12,9 +12,9 @@ import os
 
 import numpy as np
 import pandas as pd
+from reak_core.io.csvfiles import has_text_header
 
 from nucleuskit_toolkit.logging_utils import printInfo, printWarning
-from nucleuskit_toolkit.shared.file_interface import has_text_header
 
 GPS_HDR = "[GPSProcessor] "
 

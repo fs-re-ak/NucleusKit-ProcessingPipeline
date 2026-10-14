@@ -21,11 +21,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from reak_core.constants import CHANNEL_NAMES
+from reak_core.tools import fix_session
 
-from nucleuskit_toolkit.hermes.tools.channel_fixer.channel_fixer import (
-    CANONICAL_CHANNEL_NAMES,
-    fix_session,
-)
 from nucleuskit_toolkit.ui.offline_job import QueueTextWriter, channel_fixer_preflight
 
 
@@ -94,7 +92,7 @@ class ChannelFixerPage(QWidget):
         sess_row.addWidget(browse_s)
 
         self._channel = QComboBox()
-        for name in CANONICAL_CHANNEL_NAMES:
+        for name in CHANNEL_NAMES:
             self._channel.addItem(name)
 
         ch_row = QHBoxLayout()

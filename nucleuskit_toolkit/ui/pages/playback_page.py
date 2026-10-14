@@ -40,8 +40,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
-from nucleuskit_toolkit.hermes.processor.emotions_processor import EMOTION_COLUMNS
+from reak_core.models import EMOTION_COLUMNS
 
 PLAYBACK_EMOTION_COLORS: dict[str, str] = {
     "Neutral": "#a0a0a0",

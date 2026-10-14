@@ -25,12 +25,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from reak_core.models import DEFAULT_MODEL, builtin_releases, resolve_key
 
-from nucleuskit_toolkit.hermes.processor.emotions_processor.models import (
-    DEFAULT_MODEL,
-    list_models,
-    resolve_model,
-)
 from nucleuskit_toolkit.ui.offline_job import QueueTextWriter, dataset_preflight, session_preflight
 
 
@@ -227,16 +223,12 @@ class OfflinePage(QWidget):
             "Emotion classifier release used for this run. Filter settings\n"
             "(bandpass / notch) follow the selected model's config.json."
         )
-        for info in list_models():
-            self._emotion_model.addItem(info.display_label, info.key)
-        try:
-            default_key = resolve_model(DEFAULT_MODEL).key
-        except ValueError:
-            default_key = None
-        if default_key is not None:
-            idx = self._emotion_model.findData(default_key)
-            if idx >= 0:
-                self._emotion_model.setCurrentIndex(idx)
+        for key, release in builtin_releases().items():
+            label = f"{release.name} {release.version}".strip()
+            self._emotion_model.addItem(label, key)
+        idx = self._emotion_model.findData(resolve_key(DEFAULT_MODEL))
+        if idx >= 0:
+            self._emotion_model.setCurrentIndex(idx)
 
         model_row = QHBoxLayout()
         model_row.addWidget(QLabel("Emotion model"))

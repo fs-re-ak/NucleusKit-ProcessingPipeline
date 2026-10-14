@@ -20,8 +20,8 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from reak_core.tools import fix_ppg_session
 
-from nucleuskit_toolkit.shimmer.processor.ppg_fixer import fix_ppg_session
 from nucleuskit_toolkit.ui.offline_job import QueueTextWriter, ppg_fixer_preflight
 
 
