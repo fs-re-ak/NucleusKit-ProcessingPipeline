@@ -16,7 +16,6 @@ against that regression.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import numpy as np
@@ -30,8 +29,34 @@ import pytest
 _TEST_DATA = Path(__file__).parent.parent / "testData" / "shimmer.csv"
 
 
+def _synthetic_recording(path: Path) -> Path:
+    """Write a synthetic Shimmer CSV with the same amplitude regimes as testData/shimmer.csv.
+
+    Used when the original recording is not available (``testData/`` is not versioned).
+    51.2 Hz, epoch-millisecond timestamps, PPG in column 5; pulses at ~70 bpm with a
+    dicrotic wave, AC ~2800 a.u. in the bursts (0–60 s, 540–630 s) and ~15 a.u. elsewhere.
+    """
+    rng = np.random.default_rng(7)
+    fs, duration = 51.2, 700.0
+    t = np.arange(int(duration * fs)) / fs
+    beats, b = [], 0.4
+    while b < duration:
+        beats.append(b)
+        b += 60.0 / 70.0 + 0.03 * np.sin(2 * np.pi * 0.25 * b) + rng.normal(0, 0.01)
+    pulse = np.zeros_like(t)
+    for bt in beats:
+        pulse += np.exp(-0.5 * ((t - bt) / 0.08) ** 2) + 0.3 * np.exp(-0.5 * ((t - bt - 0.3) / 0.07) ** 2)
+    burst = ((t < 60.0) | ((t >= 540.0) & (t < 630.0)))
+    ppg = 2000.0 + np.where(burst, 2800.0, 15.0) * pulse + rng.normal(0, 0.5, t.size)
+    ts_ms = np.round((1791000000.0 + t) * 1000.0)
+    data = np.column_stack([ts_ms, np.zeros_like(t), np.zeros_like(t), np.ones_like(t), np.full_like(t, 250.0), ppg])
+    path.parent.mkdir(parents=True, exist_ok=True)
+    np.savetxt(path, data, delimiter=",", fmt=["%.0f", "%.4f", "%.4f", "%.4f", "%.4f", "%.4f"])
+    return path
+
+
 def _load_and_run(tmp_path: Path):
-    """Run the full PPG processing stack on testData/shimmer.csv.
+    """Run the full PPG processing stack on testData/shimmer.csv (or its synthetic stand-in).
 
     Returns
     -------
@@ -40,18 +65,19 @@ def _load_and_run(tmp_path: Path):
     duration_s : float
         Recording duration in seconds.
     """
-    from nucleuskit_toolkit.shimmer.processor.resampler import (
-        resample_to_grid,
-        normalise_timestamps_to_seconds,
-    )
     from nucleuskit_toolkit.shimmer.processor.heart import (
-        SAMPLING_RATE,
         _UPSAMPLE_RATE,
-        apply_ppg_artifact_rejection,
+        SAMPLING_RATE,
         _detect_ppg_peaks,
+        apply_ppg_artifact_rejection,
+    )
+    from nucleuskit_toolkit.shimmer.processor.resampler import (
+        normalise_timestamps_to_seconds,
+        resample_to_grid,
     )
 
-    df  = pd.read_csv(_TEST_DATA, header=None)
+    source = _TEST_DATA if _TEST_DATA.exists() else _synthetic_recording(tmp_path / "synthetic_shimmer.csv")
+    df  = pd.read_csv(source, header=None)
     ts  = normalise_timestamps_to_seconds(df[0].values.astype(float))
     ppg = df[5].values.astype(float)
 
@@ -82,7 +108,6 @@ def ppg_results(tmp_path_factory):
 # Tests
 # ---------------------------------------------------------------------------
 
-@pytest.mark.skipif(not _TEST_DATA.exists(), reason="testData/shimmer.csv not found")
 class TestPPGPeakDetection:
     """Peak detection must work in every amplitude regime of the test recording."""
 
