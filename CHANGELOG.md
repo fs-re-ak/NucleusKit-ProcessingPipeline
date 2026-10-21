@@ -1,5 +1,37 @@
 # Changelog
 
+## 2.2.0
+
+### Changed
+
+- New application layout: a sidebar (Process, Real-time viewer, Playback, Tools, MQTT Controller, Settings,
+  Documentation, About) replaces the main menu and the "Main menu" buttons; every page has a title, a one-line
+  description and a Help link.
+- New visual design with refreshed dark and light themes: cards, step numbers, visible check boxes and radio buttons,
+  outlined secondary buttons; orange is reserved for the Run pipeline action.
+- **Process** page (formerly Offline processing) redesigned: mode cards, a run summary mirroring the selected
+  options, Run pipeline as the main action, and the processing log below. The selected folder is checked in the
+  background without moving any file (session name, duration, recorded signals; for a dataset, the number of
+  sessions and of incomplete ones). Run stays disabled until the folder is valid, and invalid folders are explained
+  under the path field.
+- The NLMS option is labelled "EEG channels only": it never applies to the emotion (fEMG) features.
+- The emotion model selector marks the recommended release; options start from their defaults each time the page
+  opens.
+- Opening a page for the first time shows a loading screen while its libraries load, and those libraries are loaded
+  in the background after start-up, so the Real-time viewer no longer looks frozen on first use.
+- The Hermes Bluetooth scan lists devices as soon as they are found, shows a spinner and the number found, and can
+  be stopped; connecting stops the scan.
+
+### Added
+
+- **Cancel** while processing: the step in progress finishes, the remaining steps (and, for a dataset, the remaining
+  sessions) are skipped and recorded as cancelled in `results/processing.json`.
+- **About** page.
+
+### Removed
+
+- The main menu page and the progress bar of the processing page.
+
 ## 2.1.0
 
 ### Changed
