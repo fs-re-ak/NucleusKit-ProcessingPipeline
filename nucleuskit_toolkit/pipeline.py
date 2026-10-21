@@ -8,10 +8,11 @@ around it: POV movie conversion, session video rotation and GPS.
 
 from __future__ import annotations
 
+import threading
 from abc import ABC, abstractmethod
 
 from reak_core.io.session import Session
-from reak_core.pipeline import FunctionStep, Pipeline, RunContext
+from reak_core.pipeline import FunctionStep, Pipeline, RunContext, StepResult
 
 from nucleuskit_toolkit.camera import convertPOVMovieClip, ensure_session_video_rotated_180
 from nucleuskit_toolkit.config import resolve_pov_settings
@@ -65,26 +66,52 @@ def _local_step(name: str, fn) -> FunctionStep:
 
 
 class _LoggedStep:
-    """Prints the Nucleus-Kit progress line before running the wrapped step."""
+    """Prints the Nucleus-Kit progress line before running the wrapped step.
 
-    def __init__(self, step):
+    When ``cancel`` is set, the step is skipped instead: a cancelled run finishes the step in progress, then
+    skips the remaining ones (recorded as ``skipped`` / ``cancelled`` in ``results/processing.json``).
+    """
+
+    def __init__(self, step, cancel: threading.Event | None = None):
         self._step = step
+        self._cancel = cancel
         self.name = step.name
 
     def run(self, session: Session, context: RunContext):
+        if self._cancel is not None and self._cancel.is_set():
+            return StepResult(self.name, "skipped", detail={"reason": "cancelled"})
         printInfo(_STEP_LOG.get(self.name, f"[pipeline] {self.name}"))
         return self._step.run(session, context)
 
 
+class _CancellableExporter:
+    """Runs the wrapped exporter unless the run was cancelled (a cancelled run exports nothing)."""
+
+    def __init__(self, exporter, cancel: threading.Event):
+        self._exporter = exporter
+        self._cancel = cancel
+        self.name = exporter.name
+
+    def export(self, session: Session, context: RunContext, results) -> None:
+        if not self._cancel.is_set():
+            self._exporter.export(session, context, results)
+
+
 def build_pipeline(
-    *, skip_video_rotation: bool = False, apply_nlms: bool = True, emotion_model: str | None = None
+    *,
+    skip_video_rotation: bool = False,
+    apply_nlms: bool = True,
+    emotion_model: str | None = None,
+    cancel: threading.Event | None = None,
 ) -> Pipeline:
     """re-ak-core's default pipeline with the Nucleus-Kit local steps, in Nucleus-Kit's order."""
     pipeline = Pipeline.default(emotion_model=emotion_model, apply_nlms=apply_nlms)
     if not skip_video_rotation:
         pipeline.with_step(_local_step("video_rotation", ensure_session_video_rotated_180), after="prepare")
     pipeline.with_step(_local_step("gps", processGPS))
-    pipeline.steps = [_LoggedStep(step) for step in pipeline.steps]
+    pipeline.steps = [_LoggedStep(step, cancel) for step in pipeline.steps]
+    if cancel is not None:
+        pipeline.exporters = [_CancellableExporter(exporter, cancel) for exporter in pipeline.exporters]
     return pipeline
 
 
@@ -100,6 +127,7 @@ class NucleusKitProcessingToolkit(BasePipeline):
         skip_video_rotation: bool = False,
         apply_nlms: bool = True,
         emotion_model: str | None = None,
+        cancel: threading.Event | None = None,
     ):
         super().__init__(configuration)
         self.plot_data = False
@@ -107,6 +135,7 @@ class NucleusKitProcessingToolkit(BasePipeline):
         self._skip_video_rotation = skip_video_rotation
         self._apply_nlms = apply_nlms
         self._emotion_model = emotion_model
+        self._cancel = cancel
 
         if configuration is None:
             self.configureAsDefault()
@@ -144,6 +173,8 @@ class NucleusKitProcessingToolkit(BasePipeline):
             printWarning(f"[NucleusKitProcessingToolkit] WARNING: Converting movie failed: {e}")
 
         result = self.pipeline.run(session)
+        if self._cancel is not None and self._cancel.is_set():
+            printWarning("[pipeline] Run cancelled: the remaining steps were skipped")
         for step in result.steps:
             if step.status == "error":
                 printError(f"[NucleusKitProcessingToolkit] ERROR in {step.name}: {step.error}")
@@ -159,4 +190,5 @@ class NucleusKitProcessingToolkit(BasePipeline):
             skip_video_rotation=self._skip_video_rotation,
             apply_nlms=self._apply_nlms,
             emotion_model=self._emotion_model,
+            cancel=self._cancel,
         )
