@@ -32,10 +32,12 @@ from PySide6.QtWidgets import (
 
 from nucleuskit_toolkit.hermes.realtime.proxy import HermesBleProxy
 from nucleuskit_toolkit.shimmer import ShimmerSerialProxy
+from nucleuskit_toolkit.ui.icons import Spinner
 from nucleuskit_toolkit.ui.realtime_eeg_plot import RealtimeEegPlot
 from nucleuskit_toolkit.ui.realtime_hermes_motion_plot import RealtimeHermesMotionPlot
 from nucleuskit_toolkit.ui.realtime_nlms_config_dialog import NlmsPredictorConfigDialog
 from nucleuskit_toolkit.ui.realtime_shimmer_plot import RealtimeShimmerPlot
+from nucleuskit_toolkit.ui.theme import current_palette
 
 PAGE_DEVICE = 0
 PAGE_HERMES_SCAN = 1
@@ -62,11 +64,18 @@ class MotionStreamBridge(QObject):
     motion = Signal(float, float, float, float, float, float, float, float, float)
 
 
-def _bleak_scan_hermes_devices(timeout_s: float = 8.0) -> list[tuple[str, str]]:
+def _bleak_scan_hermes_devices(
+    timeout_s: float,
+    on_found,  # type: ignore[no-untyped-def]
+    stop: threading.Event,
+) -> int:
     """
-    Run Bleak discovery in the current thread.
+    Run Bleak discovery in the current thread, reporting each Hermes device as soon as it is seen.
+
+    on_found(name, address) is called once per device; the scan ends after timeout_s seconds or when stop is
+    set. Returns the number of devices found.
     On Windows, asyncio must use SelectorEventLoop in worker threads (not the default
-    Proactor), or BleakScanner.discover can hang indefinitely with no error output.
+    Proactor), or Bleak discovery can hang indefinitely with no error output.
     """
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
@@ -75,27 +84,49 @@ def _bleak_scan_hermes_devices(timeout_s: float = 8.0) -> list[tuple[str, str]]:
 
     from nucleuskit_toolkit.hermes.realtime.proxy import HERMES_NAME_SUBSTRING
 
-    async def discover() -> list[tuple[str, str]]:
-        devices = await BleakScanner.discover(timeout=timeout_s)
-        return [
-            (d.name or "", d.address)
-            for d in devices
-            if d.name and HERMES_NAME_SUBSTRING in d.name
-        ]
+    seen: set[str] = set()
 
-    return asyncio.run(discover())
+    def detected(device, advertisement) -> None:  # type: ignore[no-untyped-def]
+        name = device.name or getattr(advertisement, "local_name", None) or ""
+        if HERMES_NAME_SUBSTRING in name and device.address not in seen:
+            seen.add(device.address)
+            on_found(name, device.address)
+
+    async def discover() -> None:
+        scanner = BleakScanner(detection_callback=detected)
+        await scanner.start()
+        try:
+            loop = asyncio.get_running_loop()
+            end = loop.time() + timeout_s
+            while loop.time() < end and not stop.is_set():
+                await asyncio.sleep(0.1)
+        finally:
+            await scanner.stop()
+
+    asyncio.run(discover())
+    return len(seen)
 
 
 class HermesScanThread(QThread):
-    """Runs BLE scan on a background thread; keeps a strong C++/Python ref (no QObject GC bug)."""
+    """Runs the BLE scan on a background thread; keeps a strong C++/Python ref (no QObject GC bug)."""
 
-    scan_finished = Signal(list)
+    SCAN_SECONDS = 8.0
+
+    device_found = Signal(str, str)
+    scan_finished = Signal(int)
     scan_failed = Signal(str)
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._stop = threading.Event()
+
+    def stop(self) -> None:
+        self._stop.set()
 
     def run(self) -> None:
         try:
-            result = _bleak_scan_hermes_devices(8.0)
-            self.scan_finished.emit(result)
+            count = _bleak_scan_hermes_devices(self.SCAN_SECONDS, self.device_found.emit, self._stop)
+            self.scan_finished.emit(count)
         except Exception as e:
             self.scan_failed.emit(str(e))
 
@@ -141,8 +172,6 @@ MOTION_COLUMNS = ["x(g)", "y(g)", "z(g)", "x(deg/s)", "y(deg/s)", "z(deg/s)", "x
 
 
 class RealtimeViewerPage(QWidget):
-    go_main_menu = Signal()
-
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._stack = QStackedWidget()
@@ -171,22 +200,11 @@ class RealtimeViewerPage(QWidget):
         self._build_streaming_step()
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(12, 12, 12, 12)
-
-        top = QHBoxLayout()
-        top_nav = QPushButton("Main menu")
-        top_nav.setProperty("secondary", True)
-        top_nav.clicked.connect(self._request_main_menu)
-        top.addWidget(top_nav)
-        top.addStretch(1)
-        root.addLayout(top)
+        root.setContentsMargins(0, 0, 0, 0)
 
         root.addWidget(self._stack, stretch=1)
 
         self._stack.setCurrentIndex(PAGE_DEVICE)
-
-    def can_navigate_to_main_menu(self) -> bool:
-        return self._proxy is None and self._shimmer_proxy is None and not self._connecting
 
     def _is_streaming_connected(self) -> bool:
         if self._proxy is not None and self._proxy.is_connected:
@@ -251,17 +269,25 @@ class RealtimeViewerPage(QWidget):
         self._device_list.itemDoubleClicked.connect(lambda _i: self._on_connect_clicked())
 
         self._scan_btn = QPushButton("Scan")
-        self._scan_btn.clicked.connect(self._start_scan)
+        self._scan_btn.setProperty("secondary", True)
+        self._scan_btn.clicked.connect(self._scan_or_stop)
 
         self._connect_btn = QPushButton("Connect")
         self._connect_btn.clicked.connect(self._on_connect_clicked)
         self._connect_btn.setEnabled(False)
         self._device_list.itemSelectionChanged.connect(self._update_connect_enabled)
 
+        self._scan_spinner = Spinner(18, current_palette().accent)
+        self._scan_spinner.hide()
+        self._scan_status = QLabel("Press Scan to look for Hermes headsets nearby.")
+        self._scan_status.setProperty("role", "hint")
+
         row_btns = QHBoxLayout()
         row_btns.addWidget(self._scan_btn)
         row_btns.addWidget(self._connect_btn)
-        row_btns.addStretch(1)
+        row_btns.addSpacing(12)
+        row_btns.addWidget(self._scan_spinner)
+        row_btns.addWidget(self._scan_status, 1)
 
         back = QPushButton("Back")
         back.setProperty("secondary", True)
@@ -575,32 +601,66 @@ class RealtimeViewerPage(QWidget):
             return
         self._stack.setCurrentIndex(PAGE_DEVICE)
 
+    def _scan_running(self) -> bool:
+        return self._scan_thread is not None and self._scan_thread.isRunning()
+
+    def _scan_or_stop(self) -> None:
+        if self._scan_running():
+            self._stop_scan()
+        else:
+            self._start_scan()
+
     def _start_scan(self) -> None:
-        if self._scan_thread is not None and self._scan_thread.isRunning():
+        if self._scan_running():
             return
 
-        self._scan_btn.setEnabled(False)
         self._device_list.clear()
+        self._scan_btn.setText("Stop")
+        self._scan_spinner.set_color(current_palette().accent)
+        self._scan_spinner.start()
+        self._scan_status.setText("Scanning… 0 devices found")
 
         self._scan_thread = HermesScanThread()
+        self._scan_thread.device_found.connect(self._on_device_found)
         self._scan_thread.scan_finished.connect(self._on_scan_finished)
         self._scan_thread.scan_failed.connect(self._on_scan_failed)
         self._scan_thread.finished.connect(self._cleanup_scan_thread)
         self._scan_thread.start()
 
+    def _stop_scan(self, wait: bool = False) -> None:
+        """Ask the scan to end; with wait=True, block until the radio is free (before connecting)."""
+        thread = self._scan_thread
+        if thread is None:
+            return
+        thread.stop()
+        if wait:
+            thread.wait(3000)
+
     def _cleanup_scan_thread(self) -> None:
         self._scan_thread = None
-        self._scan_btn.setEnabled(True)
+        self._scan_spinner.stop()
+        self._scan_btn.setText("Scan")
+        self._scan_btn.setEnabled(not self._connecting)
 
-    def _on_scan_finished(self, items: list[tuple[str, str]]) -> None:
-        for name, address in items:
-            it = QListWidgetItem(f"{name}  |  {address}")
-            it.setData(Qt.ItemDataRole.UserRole, address)
-            self._device_list.addItem(it)
-        if not items:
-            QMessageBox.information(self, "Scan", "No Hermes devices found. Try scanning again.")
+    def _on_device_found(self, name: str, address: str) -> None:
+        it = QListWidgetItem(f"{name}  |  {address}")
+        it.setData(Qt.ItemDataRole.UserRole, address)
+        self._device_list.addItem(it)
+        if self._device_list.count() == 1:
+            self._device_list.setCurrentItem(it)
+        n = self._device_list.count()
+        self._scan_status.setText(f"Scanning… {n} device{'s' if n != 1 else ''} found")
+
+    def _on_scan_finished(self, count: int) -> None:
+        if count:
+            self._scan_status.setText(f"{count} device{'s' if count != 1 else ''} found. Select one and press Connect.")
+        else:
+            self._scan_status.setText(
+                "No Hermes devices found. Make sure the headset is on and nearby, then scan again."
+            )
 
     def _on_scan_failed(self, msg: str) -> None:
+        self._scan_status.setText("Scan failed.")
         QMessageBox.warning(self, "Scan failed", msg)
 
     def _on_connect_clicked(self) -> None:
@@ -613,6 +673,7 @@ class RealtimeViewerPage(QWidget):
         if not address:
             return
 
+        self._stop_scan(wait=True)
         self._connecting = True
         self._connect_btn.setEnabled(False)
         self._scan_btn.setEnabled(False)
@@ -778,22 +839,23 @@ class RealtimeViewerPage(QWidget):
             return
         self._eeg_plot.set_nlms_predictor_mask(dialog.predictor_mask())
 
-    def _request_main_menu(self) -> None:
+    def can_leave(self) -> bool:
+        """Called by the main window before another page is shown."""
         if self._connecting:
             QMessageBox.information(
                 self,
                 "Please wait",
-                "Connection in progress. Wait until it completes or fails before returning to the main menu.",
+                "Connection in progress. Wait until it completes or fails before leaving this page.",
             )
-            return
+            return False
         if self._is_streaming_connected():
             QMessageBox.information(
                 self,
                 "Disconnect required",
-                "Disconnect from the device before returning to the main menu.",
+                "Disconnect from the device before leaving this page.",
             )
-            return
-        self.go_main_menu.emit()
+            return False
+        return True
 
     def _toggle_recording(self) -> None:
         if not self._recording:
