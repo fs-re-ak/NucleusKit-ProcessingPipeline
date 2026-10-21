@@ -1,5 +1,5 @@
 ﻿"""
-PySide6 GUI: main menu, offline pipeline, settings (theme), and placeholders for other modes.
+PySide6 GUI: sidebar navigation between processing, real-time viewer, playback, tools, MQTT, settings and about.
 """
 
 from __future__ import annotations
@@ -9,6 +9,7 @@ import sys
 
 def run_app() -> None:
     try:
+        from PySide6.QtCore import QTimer
         from PySide6.QtWidgets import QApplication
     except ImportError as e:
         raise SystemExit(
@@ -28,4 +29,6 @@ def run_app() -> None:
 
     window = MainWindow()
     window.show()
+    # Load the pages' libraries in the background once the window is on screen.
+    QTimer.singleShot(300, window.start_warmup)
     sys.exit(app.exec())

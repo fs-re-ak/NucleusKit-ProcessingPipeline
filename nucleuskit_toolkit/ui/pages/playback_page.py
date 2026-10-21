@@ -833,8 +833,6 @@ class MetricsPlotWidget(QWidget):
 
 
 class PlaybackPage(QWidget):
-    go_main_menu = Signal()
-
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
@@ -954,10 +952,6 @@ class PlaybackPage(QWidget):
         self._splitter.setStretchFactor(0, 1)
         self._splitter.setStretchFactor(1, 1)
 
-        self._back = QPushButton("Main menu")
-        self._back.setProperty("secondary", True)
-        self._back.clicked.connect(self._on_main_menu_clicked)
-
         self._open = QPushButton("Open session…")
         self._open.clicked.connect(self._browse_session)
 
@@ -970,13 +964,12 @@ class PlaybackPage(QWidget):
         self._path_label.setWordWrap(True)
 
         top = QHBoxLayout()
-        top.addWidget(self._back)
         top.addStretch(1)
         top.addWidget(self._open)
         top.addWidget(self._play)
 
         body = QVBoxLayout(self)
-        body.setContentsMargins(12, 12, 12, 12)
+        body.setContentsMargins(0, 0, 0, 0)
         body.addLayout(top)
         body.addWidget(self._path_label)
         body.addWidget(self._splitter, stretch=1)
@@ -996,14 +989,15 @@ class PlaybackPage(QWidget):
 
         self._refresh_tool_hint()
 
-    def _on_main_menu_clicked(self) -> None:
+    def can_leave(self) -> bool:
+        """Called by the main window before another page is shown: offers to save edited annotations."""
         if not self._maybe_discard_dirty():
-            return
+            return False
         self._session_dir = None
         self._ann_mgr.clear()
         self._refresh_annotation_table()
         self._save_ann.setEnabled(False)
-        self.go_main_menu.emit()
+        return True
 
     def _on_tool_button_clicked(self, btn: QAbstractButton) -> None:
         if btn == self._tool_nav:

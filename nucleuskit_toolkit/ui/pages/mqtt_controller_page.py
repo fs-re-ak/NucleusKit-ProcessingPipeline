@@ -53,7 +53,6 @@ class _MqttBridge(QObject):
 class MqttControllerPage(QWidget):
     """Full-page MQTT controller: broker configuration, device discovery, commands."""
 
-    go_main_menu = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -73,20 +72,7 @@ class MqttControllerPage(QWidget):
 
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
-        root.setContentsMargins(12, 12, 12, 12)
-
-        # ── Top navigation bar ───────────────────────────────────────────
-        top_bar = QHBoxLayout()
-        back_btn = QPushButton("Main menu")
-        back_btn.setProperty("secondary", True)
-        back_btn.clicked.connect(self._on_go_main_menu)
-        top_bar.addWidget(back_btn)
-        top_bar.addStretch(1)
-        root.addLayout(top_bar)
-
-        title = QLabel("MQTT Controller")
-        title.setProperty("role", "title")
-        root.addWidget(title)
+        root.setContentsMargins(0, 0, 0, 0)
 
         # ── Main splitter: left panel / right log ────────────────────────
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -393,15 +379,16 @@ class MqttControllerPage(QWidget):
 
     # ── Navigation ───────────────────────────────────────────────────────
 
-    def _on_go_main_menu(self) -> None:
+    def can_leave(self) -> bool:
+        """Called by the main window before another page is shown."""
         if self._controller is not None and self._controller.is_connected:
             answer = QMessageBox.question(
                 self,
                 "Disconnect?",
-                "You are connected to a broker. Disconnect and return to the main menu?",
+                "You are connected to a broker. Disconnect and leave this page?",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
             )
             if answer != QMessageBox.StandardButton.Yes:
-                return
+                return False
             self._on_disconnect_clicked()
-        self.go_main_menu.emit()
+        return True
