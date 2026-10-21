@@ -3,7 +3,7 @@ Nucleus-Kit analytics toolkit (offline session processing).
 
 The processing itself is re-ak-core's default pipeline (``reak_core.pipeline``): heart dynamics,
 arousal, cognition, emotions, events and the emotions report. Nucleus-Kit adds its local steps
-around it: POV movie conversion, session video rotation, UWB positioning and GPS.
+around it: POV movie conversion, session video rotation and GPS.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from reak_core.pipeline import FunctionStep, Pipeline, RunContext
 from nucleuskit_toolkit.camera import convertPOVMovieClip, ensure_session_video_rotated_180
 from nucleuskit_toolkit.config import resolve_pov_settings
 from nucleuskit_toolkit.logging_utils import printError, printInfo, printWarning
-from nucleuskit_toolkit.position import processGPS, processUWB
+from nucleuskit_toolkit.position import processGPS
 
 
 class BasePipeline(ABC):
@@ -50,7 +50,6 @@ _STEP_LOG = {
     "emotions": "[pipeline] Computing emotions",
     "feature_events": "[pipeline] Processing events",
     "playback_annotations": "[pipeline] Seeding playback annotations",
-    "uwb": "[pipeline] Processing UWB position",
     "gps": "[pipeline] Processing GPS",
 }
 
@@ -84,7 +83,6 @@ def build_pipeline(
     pipeline = Pipeline.default(emotion_model=emotion_model, apply_nlms=apply_nlms)
     if not skip_video_rotation:
         pipeline.with_step(_local_step("video_rotation", ensure_session_video_rotated_180), after="prepare")
-    pipeline.with_step(_local_step("uwb", processUWB))
     pipeline.with_step(_local_step("gps", processGPS))
     pipeline.steps = [_LoggedStep(step) for step in pipeline.steps]
     return pipeline

@@ -2,7 +2,7 @@
 
 Desktop application for **Nucleus-Kit** sessions: **offline** analytics (ingest session folders on disk, run the bundled processing steps, write outputs under each session's `features/` and `results/`), plus real-time streaming, playback review, and MQTT device control. The **offline** pipeline can be run from the GUI or from the command line.
 
-Since version 2.0.0 the processing itself (heart dynamics, arousal, cognition, emotions, events, emotion models and the RMS / PPG repair tools) is [re-ak-core](https://github.com/fs-re-ak/re-ak-core), RE-AK's open processing core, shared with the re-akcas cloud processor. Nucleus-Kit adds the desktop application and its local steps: POV movie conversion, session video rotation, UWB positioning and GPS. Every change in the results compared with Nucleus-Kit 1.1 is listed in re-ak-core's [CHANGELOG](https://github.com/fs-re-ak/re-ak-core/blob/main/CHANGELOG.md).
+Since version 2.0.0 the processing itself (heart dynamics, arousal, cognition, emotions, events, emotion models and the RMS / PPG repair tools) is [re-ak-core](https://github.com/fs-re-ak/re-ak-core), RE-AK's open processing core, shared with the re-akcas cloud processor. Nucleus-Kit adds the desktop application and its local steps: POV movie conversion, session video rotation and GPS. Every change in the results compared with Nucleus-Kit 1.1 is listed in re-ak-core's [CHANGELOG](https://github.com/fs-re-ak/re-ak-core/blob/main/CHANGELOG.md).
 
 ## Table of contents
 
@@ -138,7 +138,7 @@ Exact filenames vary by firmware and recording path; common patterns include:
 - **Shimmer:** `shimmer.csv`, or legacy `rawShimmer_0.csv` / `gsr.tmp`
 - **Video:** `video.mp4` (used for playback and optional one-time 180° rotation during processing)
 - **Events:** `rawEvents.csv` (processed into `features/events/processedFeatureEvents.csv` and related); `event.csv` (used to seed `features/events/playback_annotations.json` when that file does not yet exist)
-- **Position:** UWB / GPS CSVs as expected by the position processors (under `rawData/`)
+- **Position:** GPS CSV as expected by the GPS processor (under `rawData/`)
 
 ### `features/` — notable outputs
 
@@ -149,7 +149,6 @@ Exact filenames vary by firmware and recording path; common patterns include:
 - **`features/emotions/`** — e.g. `rmsSignals.csv`, `emotionClassifierInputs.csv`, plus `original/` when using RMS editing tools
 - **`features/events/playback_annotations.json`** — point/zone annotations for playback (seeded from `rawData/event.csv` once, then user-editable in the app)
 - **`features/events/processedFeatureEvents.csv`** / **`features/events/processedWebFeatureEvents.csv`** — derived from `rawData/rawEvents.csv` when present
-- **`features/antennas.csv`** — UWB-related export when that pipeline runs
 
 Other steps may still write auxiliary artifacts directly under `features/`.
 
@@ -161,7 +160,7 @@ Written by the default offline pipeline (when the corresponding raw inputs exist
 - **`Emotions.csv`**, **`Cognition.csv`**, **`Arousal.csv`**, **`HeartDynamics.csv`**
 - **`emotion_model.json`** — emotion model and post-processing used for `Emotions.csv`
 - **`processing.json`** — re-ak-core version, model, status of each step and a signal-quality summary
-- **`positions.csv`**, **`zones.csv`** (UWB), **`gpsDf.csv`** (GPS)
+- **`gpsDf.csv`** (GPS)
 
 Playback mode looks for metric CSVs here and, for synchronized video, uses **`rawData/video.mp4`**. Event annotations are **loaded** from **`features/events/playback_annotations.json`**. When you edit annotations in Playback and save, the app writes that file and **mirrors** the same JSON to **`results/playback_annotations.json`** for convenience.
 
@@ -191,7 +190,7 @@ The [`doc/`](doc/) folder contains detailed technical descriptions of each proce
 | [`doc/pipeline_cognition.md`](doc/pipeline_cognition.md) | Hermes EEG → Cognitive Indexes (Welch power bands, epoch-level artefact rejection, Engagement) |
 | [`doc/pipeline_emotions.md`](doc/pipeline_emotions.md) | Hermes EMG → Emotion Classification (AVG_RMS artefact gate, two-stage LDA/KNN classifier) |
 | [`doc/pipeline_events.md`](doc/pipeline_events.md) | Raw Events → Feature / Web Events + Playback Annotations |
-| [`doc/pipeline_positioning.md`](doc/pipeline_positioning.md) | GPS and UWB Indoor Positioning (multilateration) |
+| [`doc/pipeline_positioning.md`](doc/pipeline_positioning.md) | GPS Positioning |
 | [`doc/mqtt_interface.md`](doc/mqtt_interface.md) | Vizia Mobile MQTT interface — status, commands, and tags |
 
 ## Trust and bundled models
