@@ -11,6 +11,7 @@ import pyqtgraph as pg
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from nucleuskit_toolkit.shimmer.constants import ShimmerConstants
+from nucleuskit_toolkit.ui.realtime_hermes_motion_plot import XYZ_COLORS
 
 pg.setConfigOptions(foreground="k")
 
@@ -44,8 +45,7 @@ class RealtimeShimmerPlot(QWidget):
         self._plot.setLabel("left", "Value")
         self._plot.setLabel("bottom", "Time (samples)")
 
-        pens = [pg.intColor(i, hues=3, values=2) for i in range(3)]
-        self._curves_imu = [self._plot.plot(pen=pens[i]) for i in range(3)]
+        self._curves_imu = [self._plot.plot(pen=pg.mkPen(color, width=2)) for color in XYZ_COLORS]
         self._curve_scalar = self._plot.plot(pen=pg.mkPen("c", width=2))
 
         self._buf_imu = [np.zeros(self._buf_len) for _ in range(3)]

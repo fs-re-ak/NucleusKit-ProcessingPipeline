@@ -12,6 +12,10 @@ from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QVBoxLayout, QWidg
 
 pg.setConfigOptions(foreground="k")
 
+# X / Y / Z trace colours on the black plot, checked for contrast and colour-vision deficiency separation
+# (red / teal / amber; red-amber is close for deuteranopia, hence the X / Y / Z legend).
+XYZ_COLORS = ("#e5484d", "#199e70", "#c98500")
+
 LABEL_ACCEL = "Accelerometer (x,y,z)"
 LABEL_GYRO = "Gyroscope (x,y,z)"
 LABEL_COMPASS = "Compass (x,y,z)"
@@ -60,8 +64,10 @@ class RealtimeHermesMotionPlot(QWidget):
         self._plot.showGrid(x=True, y=True)
         self._plot.setLabel("bottom", "Time (samples)")
 
-        pens = [pg.intColor(i, hues=3, values=2) for i in range(3)]
-        self._curves = [self._plot.plot(pen=pens[i]) for i in range(3)]
+        self._plot.addLegend(offset=(10, 10), labelTextColor="#e6e9ef")
+        self._curves = [
+            self._plot.plot(pen=pg.mkPen(color, width=2), name=axis) for axis, color in zip("XYZ", XYZ_COLORS)
+        ]
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
