@@ -2,6 +2,14 @@
 
 ## 2.1.0
 
+### Changed
+
+- Published on PyPI: `pip install "nucleuskit-toolkit[gui]"`. re-ak-core is now a regular dependency
+  (`re-ak-core>=1.0.1,<1.1`, from PyPI) instead of a Git URL, so Git is no longer needed to install.
+- Dependencies updated to their latest versions (numpy 2.5, pandas 2.3, matplotlib 3.11, OpenCV 5, PySide6 6.12,
+  pyqtgraph 0.14, bleak 3); scipy stays on 1.17 and scikit-learn on 1.6, as in re-ak-core.
+- SPDX license metadata, project URLs and classifiers.
+
 ### Removed
 
 - UWB indoor positioning (`position/uwb_processor.py`, the `uwb` pipeline step): it is no longer part of Nucleus-Kit.

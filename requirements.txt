@@ -1,4 +1,4 @@
-re-ak-core @ git+https://github.com/fs-re-ak/re-ak-core.git@1.0.0a1
+re-ak-core==1.0.1
 numpy==2.5.4
 pandas==2.3.3
 scipy==1.17.1

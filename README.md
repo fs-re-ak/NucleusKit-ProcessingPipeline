@@ -55,33 +55,30 @@ After `python -m nucleuskit_toolkit`, the home screen offers:
 ## Requirements
 
 - Python 3.10+
-- Git (re-ak-core is installed from its GitHub repository, pinned to a release tag)
-- Core dependencies are declared in [`pyproject.toml`](pyproject.toml). [`requirements.txt`](requirements.txt) is a flat install file that covers all dependencies including the optional GUI extras in one go.
+- Core dependencies are declared in [`pyproject.toml`](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/blob/main/pyproject.toml). [`requirements.txt`](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/blob/main/requirements.txt) is a flat install file that covers all dependencies including the optional GUI extras in one go.
 
 ## Install
 
-From the repository root:
+From PyPI, with the **desktop interface** (PySide6 / Qt 6, optional `gui` extra):
 
 ```bash
-pip install .
+pip install "nucleuskit-toolkit[gui]"
 ```
 
-The **desktop interface** uses PySide6 (Qt 6). Install it with the optional `gui` extra:
+Without the `gui` extra only the command line (`nucleuskit-toolkit --session <folder>`) is available.
 
-```bash
-pip install ".[gui]"
-```
-
-For development (tests + linter):
-
-```bash
-pip install ".[dev]"
-```
-
-To work on the GUI locally, combine extras:
+For development, from a clone of this repository (tests + linter + GUI):
 
 ```bash
 pip install ".[dev,gui]"
+```
+
+To change re-ak-core at the same time, install a clone of it in editable mode first: it satisfies the
+`re-ak-core>=1.0.1,<1.1` requirement, so pip keeps it.
+
+```bash
+pip install -e ../re-ak-core
+pip install -e ".[dev,gui]"
 ```
 
 ## Run
@@ -92,9 +89,9 @@ pip install ".[dev,gui]"
 python -m nucleuskit_toolkit
 ```
 
-Requires `pip install ".[gui]"`.
+Requires the `gui` extra.
 
-Replace the packaged logo anytime with your own PNG at [`nucleuskit_toolkit/ui/resources/branding/logo.png`](nucleuskit_toolkit/ui/resources/branding/logo.png) (same path in an installed package).
+Replace the packaged logo anytime with your own PNG at [`nucleuskit_toolkit/ui/resources/branding/logo.png`](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/blob/main/nucleuskit_toolkit/ui/resources/branding/logo.png) (same path in an installed package).
 
 **Headless mode** (automation / CI):
 
@@ -180,18 +177,18 @@ JSON keys: `pov_data_root`, `ffmpeg_dir`, `screen_id`.
 
 ## Technical documentation
 
-The [`doc/`](doc/) folder contains detailed technical descriptions of each processing toolkit for traceability and scientific reference. The heart, arousal, cognition, emotions and events processing now lives in re-ak-core: those pages describe Nucleus-Kit 1.1 and will move to re-ak-core's documentation; re-ak-core's CHANGELOG lists what changed since.
+The [`doc/`](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/tree/main/doc/) folder contains detailed technical descriptions of each processing toolkit for traceability and scientific reference. The heart, arousal, cognition, emotions and events processing now lives in re-ak-core: those pages describe Nucleus-Kit 1.1 and will move to re-ak-core's documentation; re-ak-core's CHANGELOG lists what changed since.
 
 | File | Pipeline |
 |------|----------|
-| [`doc/overview.md`](doc/overview.md) | Pipeline orchestration, step order, session layout, shared 2 Hz timebase |
-| [`doc/pipeline_heart.md`](doc/pipeline_heart.md) | Shimmer PPG → Heart Rate Dynamics (SQI + MAD artifact rejection, NeuroKit2, HRV) |
-| [`doc/pipeline_arousal.md`](doc/pipeline_arousal.md) | Shimmer EDA → Arousal (cvxEDA tonic/phasic decomposition, SCR detection) |
-| [`doc/pipeline_cognition.md`](doc/pipeline_cognition.md) | Hermes EEG → Cognitive Indexes (Welch power bands, epoch-level artefact rejection, Engagement) |
-| [`doc/pipeline_emotions.md`](doc/pipeline_emotions.md) | Hermes EMG → Emotion Classification (AVG_RMS artefact gate, two-stage LDA/KNN classifier) |
-| [`doc/pipeline_events.md`](doc/pipeline_events.md) | Raw Events → Feature / Web Events + Playback Annotations |
-| [`doc/pipeline_positioning.md`](doc/pipeline_positioning.md) | GPS Positioning |
-| [`doc/mqtt_interface.md`](doc/mqtt_interface.md) | Vizia Mobile MQTT interface — status, commands, and tags |
+| [`doc/overview.md`](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/blob/main/doc/overview.md) | Pipeline orchestration, step order, session layout, shared 2 Hz timebase |
+| [`doc/pipeline_heart.md`](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/blob/main/doc/pipeline_heart.md) | Shimmer PPG → Heart Rate Dynamics (SQI + MAD artifact rejection, NeuroKit2, HRV) |
+| [`doc/pipeline_arousal.md`](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/blob/main/doc/pipeline_arousal.md) | Shimmer EDA → Arousal (cvxEDA tonic/phasic decomposition, SCR detection) |
+| [`doc/pipeline_cognition.md`](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/blob/main/doc/pipeline_cognition.md) | Hermes EEG → Cognitive Indexes (Welch power bands, epoch-level artefact rejection, Engagement) |
+| [`doc/pipeline_emotions.md`](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/blob/main/doc/pipeline_emotions.md) | Hermes EMG → Emotion Classification (AVG_RMS artefact gate, two-stage LDA/KNN classifier) |
+| [`doc/pipeline_events.md`](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/blob/main/doc/pipeline_events.md) | Raw Events → Feature / Web Events + Playback Annotations |
+| [`doc/pipeline_positioning.md`](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/blob/main/doc/pipeline_positioning.md) | GPS Positioning |
+| [`doc/mqtt_interface.md`](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/blob/main/doc/mqtt_interface.md) | Vizia Mobile MQTT interface — status, commands, and tags |
 
 ## Trust and bundled models
 
@@ -209,6 +206,6 @@ pytest
 
 Copyright (C) 2026 RE-AK Technologies Inc.
 
-This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. See [LICENSE](LICENSE) for the full text.
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. See [LICENSE](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/blob/main/LICENSE) for the full text.
 
 SPDX-License-Identifier: `GPL-3.0-or-later`. Versions up to 1.1 were released under the MIT License.
