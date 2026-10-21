@@ -26,18 +26,15 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
-from nucleuskit_toolkit.hermes.processor.rms_ops import (
+from reak_core.constants import CHANNEL_NAMES
+from reak_core.tools.rms_columns import as_output_rms_frame, normalize_rms_dataframe
+from reak_core.tools.rms_ops import (
     append_operation,
     ensure_baseline_snapshot,
     original_rms_csv,
     working_rms_csv,
 )
-from nucleuskit_toolkit.hermes.rms_columns import (
-    CANONICAL_CHANNEL_NAMES,
-    as_output_rms_frame,
-    normalize_rms_dataframe,
-)
+
 from nucleuskit_toolkit.ui.offline_job import rms_features_preflight
 
 
@@ -52,7 +49,7 @@ def _quartile_stats(values: np.ndarray) -> tuple[float, float, float, float, flo
 
 def _apply_gain_zero(df: pd.DataFrame, gains: list[float], zeros: list[float]) -> pd.DataFrame:
     out = df.copy()
-    for i, name in enumerate(CANONICAL_CHANNEL_NAMES):
+    for i, name in enumerate(CHANNEL_NAMES):
         out[name] = out[name].astype(float) * gains[i] + zeros[i]
     return out
 
@@ -100,7 +97,7 @@ class ChannelGainPage(QWidget):
         self._hint.setWordWrap(True)
 
         self._channel_combo = QComboBox()
-        for name in CANONICAL_CHANNEL_NAMES:
+        for name in CHANNEL_NAMES:
             self._channel_combo.addItem(name)
         self._channel_combo.currentIndexChanged.connect(lambda _i: self._refresh_preview())
 
@@ -116,7 +113,7 @@ class ChannelGainPage(QWidget):
         form_scroll.setWidgetResizable(True)
         form_inner = QWidget()
         form_layout = QVBoxLayout(form_inner)
-        for i, name in enumerate(CANONICAL_CHANNEL_NAMES):
+        for i, name in enumerate(CHANNEL_NAMES):
             box = QGroupBox(name)
             fl = QFormLayout(box)
             sg = QDoubleSpinBox()
@@ -267,7 +264,7 @@ class ChannelGainPage(QWidget):
             return
 
         self._table.setRowCount(8)
-        for i, ch_name in enumerate(CANONICAL_CHANNEL_NAMES):
+        for i, ch_name in enumerate(CHANNEL_NAMES):
             bcol = self._blue_df[ch_name].to_numpy(dtype=float)
             rcol = red_df[ch_name].to_numpy(dtype=float)
             bstats = _quartile_stats(bcol)
@@ -280,7 +277,7 @@ class ChannelGainPage(QWidget):
         idx = self._channel_combo.currentIndex()
         if idx < 0:
             idx = 0
-        name = CANONICAL_CHANNEL_NAMES[idx]
+        name = CHANNEL_NAMES[idx]
 
         bcol = self._blue_df[name].to_numpy(dtype=float)
         rcol = red_df[name].to_numpy(dtype=float)
@@ -343,7 +340,7 @@ class ChannelGainPage(QWidget):
             ensure_baseline_snapshot(self._folder)
             as_output_rms_frame(out).to_csv(work_path, index=False)
             parts = [
-                f"{CANONICAL_CHANNEL_NAMES[i]}:g={self._gains[i]:.4g},z={self._zeros[i]:.4g}"
+                f"{CHANNEL_NAMES[i]}:g={self._gains[i]:.4g},z={self._zeros[i]:.4g}"
                 for i in range(8)
             ]
             msg = "gain_adjust " + ";".join(parts)

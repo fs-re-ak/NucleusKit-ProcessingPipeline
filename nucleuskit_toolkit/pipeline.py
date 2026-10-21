@@ -1,25 +1,22 @@
 ﻿"""
 Nucleus-Kit analytics toolkit (offline session processing).
 
-Upstream reference: analyticsEngine/pipelines/HermesAnalysisPipeline.py
+The processing itself is re-ak-core's default pipeline (``reak_core.pipeline``): heart dynamics,
+arousal, cognition, emotions, events and the emotions report. Nucleus-Kit adds its local steps
+around it: POV movie conversion, session video rotation, UWB positioning and GPS.
 """
 
 from __future__ import annotations
 
-import traceback
 from abc import ABC, abstractmethod
 
-from nucleuskit_toolkit.config import resolve_pov_settings
-from nucleuskit_toolkit.hermes.processor.cognition_processor import computeCognitiveIndexes
-from nucleuskit_toolkit.hermes.processor.emotions_processor import computeEmotions
-from nucleuskit_toolkit.events.processor import eventProcessor
+from reak_core.io.session import Session
+from reak_core.pipeline import FunctionStep, Pipeline, RunContext
+
 from nucleuskit_toolkit.camera import convertPOVMovieClip, ensure_session_video_rotated_180
-from nucleuskit_toolkit.session.layout import ensure_session_rawdata_layout, prepareDirectory
-from nucleuskit_toolkit.session.meta.info import extractMetaInfo
-from nucleuskit_toolkit.events import seedPlaybackAnnotations
+from nucleuskit_toolkit.config import resolve_pov_settings
 from nucleuskit_toolkit.logging_utils import printError, printInfo, printWarning
 from nucleuskit_toolkit.position import processGPS, processUWB
-from nucleuskit_toolkit.shimmer import computeArousal, computeHeartDynamics
 
 
 class BasePipeline(ABC):
@@ -44,18 +41,53 @@ class BasePipeline(ABC):
 
 
 _STEP_LOG = {
-    "prepareDirectory": "[pipeline] Preparing session folders",
-    "ensure_session_video_rotated_180": "[pipeline] Checking session video orientation",
-    "extractMetaInfo": "[pipeline] Reading recording length",
-    "computeHeartDynamics": "[pipeline] Computing heart dynamics",
-    "computeArousal": "[pipeline] Computing arousal",
-    "computeCognitiveIndexes": "[pipeline] Computing cognitive indexes",
-    "computeEmotions": "[pipeline] Computing emotions",
-    "eventProcessor": "[pipeline] Processing events",
-    "seedPlaybackAnnotations": "[pipeline] Seeding playback annotations",
-    "processUWB": "[pipeline] Processing UWB position",
-    "processGPS": "[pipeline] Processing GPS",
+    "prepare": "[pipeline] Preparing session folders",
+    "video_rotation": "[pipeline] Checking session video orientation",
+    "metainfo": "[pipeline] Reading recording length",
+    "heart_dynamics": "[pipeline] Computing heart dynamics",
+    "arousal": "[pipeline] Computing arousal",
+    "cognition": "[pipeline] Computing cognitive indexes",
+    "emotions": "[pipeline] Computing emotions",
+    "feature_events": "[pipeline] Processing events",
+    "playback_annotations": "[pipeline] Seeding playback annotations",
+    "uwb": "[pipeline] Processing UWB position",
+    "gps": "[pipeline] Processing GPS",
 }
+
+
+def _local_step(name: str, fn) -> FunctionStep:
+    """A Nucleus-Kit step backed by ``fn(session_path)``."""
+
+    def run(session: Session, context: RunContext) -> dict:
+        fn(session.root)
+        return {}
+
+    return FunctionStep(name, run)
+
+
+class _LoggedStep:
+    """Prints the Nucleus-Kit progress line before running the wrapped step."""
+
+    def __init__(self, step):
+        self._step = step
+        self.name = step.name
+
+    def run(self, session: Session, context: RunContext):
+        printInfo(_STEP_LOG.get(self.name, f"[pipeline] {self.name}"))
+        return self._step.run(session, context)
+
+
+def build_pipeline(
+    *, skip_video_rotation: bool = False, apply_nlms: bool = True, emotion_model: str | None = None
+) -> Pipeline:
+    """re-ak-core's default pipeline with the Nucleus-Kit local steps, in Nucleus-Kit's order."""
+    pipeline = Pipeline.default(emotion_model=emotion_model, apply_nlms=apply_nlms)
+    if not skip_video_rotation:
+        pipeline.with_step(_local_step("video_rotation", ensure_session_video_rotated_180), after="prepare")
+    pipeline.with_step(_local_step("uwb", processUWB))
+    pipeline.with_step(_local_step("gps", processGPS))
+    pipeline.steps = [_LoggedStep(step) for step in pipeline.steps]
+    return pipeline
 
 
 class NucleusKitProcessingToolkit(BasePipeline):
@@ -73,7 +105,7 @@ class NucleusKitProcessingToolkit(BasePipeline):
     ):
         super().__init__(configuration)
         self.plot_data = False
-        self.processingSteps = []
+        self.pipeline: Pipeline | None = None
         self._skip_video_rotation = skip_video_rotation
         self._apply_nlms = apply_nlms
         self._emotion_model = emotion_model
@@ -84,13 +116,18 @@ class NucleusKitProcessingToolkit(BasePipeline):
         else:
             printError("[NucleusKitProcessingToolkit] ERROR: Invalid configuration")
 
+    @property
+    def processingSteps(self) -> list[str]:
+        """Names of the steps run, in order."""
+        return [step.name for step in self.pipeline.steps] if self.pipeline else []
+
     def processSession(self, jobDetails):
         if not self.configured:
             printError("[NucleusKitProcessingToolkit] ERROR: Pipeline not configured")
             return False
 
         cachepath = jobDetails.path
-        ensure_session_rawdata_layout(cachepath)
+        session = Session.open(cachepath)
 
         pov = resolve_pov_settings(getattr(jobDetails, "pov_config_json", None))
         screen_id = jobDetails.screenID or (pov.screen_id if pov else None)
@@ -102,51 +139,26 @@ class NucleusKitProcessingToolkit(BasePipeline):
                 convertPOVMovieClip(screen_id, pov.data_root, pov.ffmpeg_bin_dir)
             elif screen_id:
                 printWarning(
-                    "[NucleusKitProcessingToolkit] POV screen id set but data_root/ffmpeg not configured; skipping conversion"
+                    "[NucleusKitProcessingToolkit] POV screen id set but data_root/ffmpeg not configured; "
+                    "skipping conversion"
                 )
         except Exception as e:
             printWarning(f"[NucleusKitProcessingToolkit] WARNING: Converting movie failed: {e}")
 
-        for processor in self.processingSteps:
-            printInfo(_STEP_LOG.get(processor.__name__, f"[pipeline] {processor.__name__}"))
-            try:
-                processor(cachepath)
-            except BaseException as e:
-                printError(
-                    f"[NucleusKitProcessingToolkit] ERROR in {processor.__name__}: {type(e).__name__}: {e}"
-                )
-                printError(f"[NucleusKitProcessingToolkit] Traceback:\n{traceback.format_exc()}")
+        result = self.pipeline.run(session)
+        for step in result.steps:
+            if step.status == "error":
+                printError(f"[NucleusKitProcessingToolkit] ERROR in {step.name}: {step.error}")
+            else:
+                printInfo(f"[pipeline] {step.name}: {step.status} ({step.seconds:.1f} s)")
 
         printInfo("[pipeline] Session processing finished")
         return True
 
-    @staticmethod
-    def _bind(fn, **kwargs):
-        """Wrap a processor function with bound keyword arguments, preserving __name__."""
-        def step(path):
-            return fn(path, **kwargs)
-        step.__name__ = fn.__name__
-        return step
-
     def configureAsDefault(self):
         self.pipeName = "HermesDevPipe"
-        self.processingSteps = []
-        self.processingSteps.append(prepareDirectory)
-        if not self._skip_video_rotation:
-            self.processingSteps.append(ensure_session_video_rotated_180)
-        self.processingSteps.append(extractMetaInfo)
-        self.processingSteps.append(computeHeartDynamics)
-        self.processingSteps.append(computeArousal)
-        self.processingSteps.append(self._bind(computeCognitiveIndexes, apply_nlms=self._apply_nlms))
-        self.processingSteps.append(
-            self._bind(
-                computeEmotions,
-                apply_nlms=self._apply_nlms,
-                model_name=self._emotion_model,
-            )
+        self.pipeline = build_pipeline(
+            skip_video_rotation=self._skip_video_rotation,
+            apply_nlms=self._apply_nlms,
+            emotion_model=self._emotion_model,
         )
-        self.processingSteps.append(eventProcessor)
-        self.processingSteps.append(seedPlaybackAnnotations)
-        self.processingSteps.append(processUWB)
-        self.processingSteps.append(processGPS)
-

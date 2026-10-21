@@ -1,5 +1,7 @@
 # Events Pipeline — Raw Events Processing and Playback Annotations
 
+> **Since Nucleus-Kit 2.0.0** this processing is done by re-ak-core (`reak_core.sync`). This page describes Nucleus-Kit 1.1 and will move to re-ak-core's documentation; the module paths below are those of 1.1. Every change in the results since 1.1 is listed in re-ak-core's [CHANGELOG](https://github.com/fs-re-ak/re-ak-core/blob/main/CHANGELOG.md).
+
 This document covers two independent event-processing steps that run sequentially in the pipeline:
 
 1. **Event filtering** (`eventProcessor`) — splits `rawEvents.csv` into feature and web event CSVs.

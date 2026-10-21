@@ -10,10 +10,8 @@ matplotlib.use("Agg")
 
 
 def main(argv: list[str] | None = None) -> int:
-    from nucleuskit_toolkit.hermes.processor.emotions_processor.models import (
-        DEFAULT_MODEL,
-        available_model_keys,
-    )
+    from reak_core.models import DEFAULT_MODEL, available_models
+
     from nucleuskit_toolkit.logging_utils import configure_logging
 
     configure_logging()
@@ -38,7 +36,7 @@ def main(argv: list[str] | None = None) -> int:
         default=DEFAULT_MODEL,
         help=(
             "Emotion model registry key "
-            f"(default: {DEFAULT_MODEL}). Available: {', '.join(available_model_keys())}."
+            f"(default: {DEFAULT_MODEL}). Available: {', '.join(available_models())}."
         ),
     )
     ns = parser.parse_args(argv)

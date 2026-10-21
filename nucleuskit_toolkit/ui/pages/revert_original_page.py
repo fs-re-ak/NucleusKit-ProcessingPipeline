@@ -16,12 +16,12 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
-from nucleuskit_toolkit.hermes.processor.rms_ops import (
+from reak_core.tools.rms_ops import (
     operations_log_path,
     original_rms_csv,
     revert_working_to_original,
 )
+
 from nucleuskit_toolkit.ui.offline_job import rms_features_preflight
 
 

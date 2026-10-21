@@ -2,6 +2,8 @@
 
 Desktop application for **Nucleus-Kit** sessions: **offline** analytics (ingest session folders on disk, run the bundled processing steps, write outputs under each session's `features/` and `results/`), plus real-time streaming, playback review, and MQTT device control. The **offline** pipeline can be run from the GUI or from the command line.
 
+Since version 2.0.0 the processing itself (heart dynamics, arousal, cognition, emotions, events, emotion models and the RMS / PPG repair tools) is [re-ak-core](https://github.com/fs-re-ak/re-ak-core), RE-AK's open processing core, shared with the re-akcas cloud processor. Nucleus-Kit adds the desktop application and its local steps: POV movie conversion, session video rotation, UWB positioning and GPS. Every change in the results compared with Nucleus-Kit 1.1 is listed in re-ak-core's [CHANGELOG](https://github.com/fs-re-ak/re-ak-core/blob/main/CHANGELOG.md).
+
 ## Table of contents
 
 - [Hardware mapping](#hardware-mapping)
@@ -53,6 +55,7 @@ After `python -m nucleuskit_toolkit`, the home screen offers:
 ## Requirements
 
 - Python 3.10+
+- Git (re-ak-core is installed from its GitHub repository, pinned to a release tag)
 - Core dependencies are declared in [`pyproject.toml`](pyproject.toml). [`requirements.txt`](requirements.txt) is a flat install file that covers all dependencies including the optional GUI extras in one go.
 
 ## Install
@@ -134,7 +137,7 @@ Exact filenames vary by firmware and recording path; common patterns include:
 - **Hermes EEG / EMG:** `rawEEG_0.csv` or `eeg.tmp`
 - **Shimmer:** `shimmer.csv`, or legacy `rawShimmer_0.csv` / `gsr.tmp`
 - **Video:** `video.mp4` (used for playback and optional one-time 180° rotation during processing)
-- **Events:** `rawEvents.csv` (processed into `features/processedFeatureEvents.csv` and related); `event.csv` (used to seed `features/events/playback_annotations.json` when that file does not yet exist)
+- **Events:** `rawEvents.csv` (processed into `features/events/processedFeatureEvents.csv` and related); `event.csv` (used to seed `features/events/playback_annotations.json` when that file does not yet exist)
 - **Position:** UWB / GPS CSVs as expected by the position processors (under `rawData/`)
 
 ### `features/` — notable outputs
@@ -145,17 +148,19 @@ Exact filenames vary by firmware and recording path; common patterns include:
 - **`features/cognition/`** — EEG band powers (`powerBands.csv`), bilateral temporal averages (`temporalBandPowers.csv`), epoch-level artefact rejection summary (`artefactStats.csv`), per-epoch signal metrics (`epochMetrics.csv`), and artefact waveform plot (`eegArtefactPlot.png`)
 - **`features/emotions/`** — e.g. `rmsSignals.csv`, `emotionClassifierInputs.csv`, plus `original/` when using RMS editing tools
 - **`features/events/playback_annotations.json`** — point/zone annotations for playback (seeded from `rawData/event.csv` once, then user-editable in the app)
-- **`features/processedFeatureEvents.csv`** / **`features/processedWebFeatureEvents.csv`** — derived from `rawData/rawEvents.csv` when present
+- **`features/events/processedFeatureEvents.csv`** / **`features/events/processedWebFeatureEvents.csv`** — derived from `rawData/rawEvents.csv` when present
 - **`features/antennas.csv`** — UWB-related export when that pipeline runs
 
 Other steps may still write auxiliary artifacts directly under `features/`.
 
 ### `results/` — primary toolkit tables
 
-Written by the default offline pipeline (when the corresponding raw inputs exist):
+Written by the default offline pipeline (when the corresponding raw inputs exist). Existing outputs are reused: delete them to recompute a step.
 
 - **`processingLog.txt`** — append-only run log
 - **`Emotions.csv`**, **`Cognition.csv`**, **`Arousal.csv`**, **`HeartDynamics.csv`**
+- **`emotion_model.json`** — emotion model and post-processing used for `Emotions.csv`
+- **`processing.json`** — re-ak-core version, model, status of each step and a signal-quality summary
 - **`positions.csv`**, **`zones.csv`** (UWB), **`gpsDf.csv`** (GPS)
 
 Playback mode looks for metric CSVs here and, for synchronized video, uses **`rawData/video.mp4`**. Event annotations are **loaded** from **`features/events/playback_annotations.json`**. When you edit annotations in Playback and save, the app writes that file and **mirrors** the same JSON to **`results/playback_annotations.json`** for convenience.
@@ -176,7 +181,7 @@ JSON keys: `pov_data_root`, `ffmpeg_dir`, `screen_id`.
 
 ## Technical documentation
 
-The [`doc/`](doc/) folder contains detailed technical descriptions of each processing toolkit for traceability and scientific reference:
+The [`doc/`](doc/) folder contains detailed technical descriptions of each processing toolkit for traceability and scientific reference. The heart, arousal, cognition, emotions and events processing now lives in re-ak-core: those pages describe Nucleus-Kit 1.1 and will move to re-ak-core's documentation; re-ak-core's CHANGELOG lists what changed since.
 
 | File | Pipeline |
 |------|----------|
@@ -191,7 +196,7 @@ The [`doc/`](doc/) folder contains detailed technical descriptions of each proce
 
 ## Trust and bundled models
 
-The repository includes **joblib/pickle** model artifacts for emotion inference and channel repair. Treat them like executable data: only use models shipped with this project or that you trust.
+The emotion models are shipped by re-ak-core as **joblib/pickle** artifacts, checked against the checksums of their release manifest before loading. Treat them like executable data: only use models shipped with re-ak-core or that you trust.
 
 ## Tests
 
@@ -199,6 +204,12 @@ The repository includes **joblib/pickle** model artifacts for emotion inference 
 pytest
 ```
 
+`tests/test_open_core_references.py` checks that Nucleus-Kit gives exactly re-ak-core's outputs on re-ak-core's synthetic sessions; it needs a `re-ak-core` checkout next to this repository (or `RE_AK_CORE=<path>`) and is skipped otherwise.
+
 ## License
 
-See [LICENSE](LICENSE).
+Copyright (C) 2026 RE-AK Technologies Inc.
+
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version. See [LICENSE](LICENSE) for the full text.
+
+SPDX-License-Identifier: `GPL-3.0-or-later`. Versions up to 1.1 were released under the MIT License.
