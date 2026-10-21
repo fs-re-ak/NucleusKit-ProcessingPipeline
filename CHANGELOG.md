@@ -21,6 +21,10 @@
   in the background after start-up, so the Real-time viewer no longer looks frozen on first use.
 - The Hermes Bluetooth scan lists devices as soon as they are found, shows a spinner and the number found, and can
   be stopped; connecting stops the scan.
+- Plots follow the light / dark theme with readable axes. The real-time EEG is a stacked display in one ink colour
+  with channel names on the left axis, time in seconds and a 100 µV scale bar; motion traces are X red, Y teal,
+  Z yellow with a legend; Playback emotions use a fixed, colour-blind-checked palette (Fear and Contempt shared a
+  colour before) and the legend text stays in the text colour.
 
 ### Added
 

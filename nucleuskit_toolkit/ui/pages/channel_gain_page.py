@@ -36,6 +36,7 @@ from reak_core.tools.rms_ops import (
 )
 
 from nucleuskit_toolkit.ui.offline_job import rms_features_preflight
+from nucleuskit_toolkit.ui.plot_style import plot_colors, set_label, set_title, style_plot, style_view, translucent
 
 
 def _quartile_stats(values: np.ndarray) -> tuple[float, float, float, float, float]:
@@ -172,9 +173,8 @@ class ChannelGainPage(QWidget):
         self._table.setRowCount(8)
 
         self._plot = pg.PlotWidget()
-        self._plot.setLabel("left", "RMS")
-        self._plot.setLabel("bottom", "")
-        self._plot.showGrid(x=False, y=True)
+        set_label(self._plot.getPlotItem(), "left", "RMS")
+        self.refresh_theme()
         self._plot.setMinimumHeight(280)
         self._plot.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
         vb = self._plot.getViewBox()
@@ -200,6 +200,14 @@ class ChannelGainPage(QWidget):
         layout = QVBoxLayout(self)
         layout.addLayout(top)
         layout.addWidget(main_split, 1)
+
+    def refresh_theme(self) -> None:
+        """Re-apply the plot colours of the current theme (redraws the distributions)."""
+        style_view(self._plot)
+        style_plot(self._plot.getPlotItem(), grid=False)
+        self._plot.showGrid(x=False, y=True, alpha=plot_colors().grid_alpha)
+        if getattr(self, "_blue_df", None) is not None:
+            self._refresh_preview()
 
     def _on_plot_range_changed(self, *_args) -> None:
         """Keep horizontal range fixed; only Y may change (zoom/pan)."""
@@ -283,7 +291,7 @@ class ChannelGainPage(QWidget):
         rcol = red_df[name].to_numpy(dtype=float)
 
         self._plot.clear()
-        self._plot.setTitle(name)
+        set_title(self._plot.getPlotItem(), name)
         n = len(bcol)
         k = min(n, self._MAX_SCATTER)
         if k < 1:
@@ -300,14 +308,14 @@ class ChannelGainPage(QWidget):
             x=xb,
             y=vb,
             pen=None,
-            brush=pg.mkBrush(30, 120, 255, 100),
+            brush=pg.mkBrush(translucent(plot_colors().pair[0], 110)),
             size=5,
         )
         sp_r = pg.ScatterPlotItem(
             x=xr,
             y=vr,
             pen=None,
-            brush=pg.mkBrush(255, 60, 60, 100),
+            brush=pg.mkBrush(translucent(plot_colors().pair[1], 110)),
             size=5,
         )
         self._plot.addItem(sp_b)

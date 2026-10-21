@@ -1,4 +1,8 @@
-﻿"""Real-time EEG plot (PySide6 + pyqtgraph), adapted from the legacy example visualizer."""
+﻿"""Real-time EEG plot (PySide6 + pyqtgraph), adapted from the legacy example visualizer.
+
+Stacked display: one row per channel in a single ink colour, channel names on the left axis, time in seconds
+(the last ``window`` seconds, 0 = now) and a 100 µV scale bar. Colours follow the app theme (``plot_style``).
+"""
 
 from __future__ import annotations
 
@@ -19,8 +23,11 @@ from reak_core.eeg.nlms import (
 from scipy.signal import butter, lfilter, lfilter_zi
 
 from nucleuskit_toolkit.hermes.constants import HermesConstants
+from nucleuskit_toolkit.ui.plot_style import pen, plot_colors, set_label, style_plot, style_view
 
-pg.setConfigOptions(foreground="k")
+ROW_SPACING_UV = 100.0
+SCALE_BAR_UV = 100.0
+WINDOW_S = 5.0
 
 
 def _butter_bandpass(lowcut: float, highcut: float, fs: float, order: int = 4):
@@ -53,26 +60,40 @@ class RealtimeEegPlot(QWidget):
         self._nlms_predictor_mask = build_default_predictor_mask(nb_channels)
 
         self._win = pg.GraphicsLayoutWidget(title="Real-time EEG")
-        self._plot = self._win.addPlot(title="EEG Channels")
-        self._plot.showGrid(x=True, y=True)
-        self._plot.setLabel("left", "Amplitude (uV)")
-        self._plot.setLabel("bottom", "Time (samples)")
+        self._plot = self._win.addPlot()
+        self._plot.setMenuEnabled(False)
+        self._plot.hideButtons()
 
-        self._curves = [self._plot.plot(pen=pg.intColor(i)) for i in range(nb_channels)]
-
-        buffer_size = int(sampling_rate * 5)
+        buffer_size = int(sampling_rate * WINDOW_S)
         self._data_buffers = [np.zeros(buffer_size) for _ in range(nb_channels)]
+        # Seconds before now of each buffer sample (the newest sample is at 0).
+        self._time = (np.arange(buffer_size) - (buffer_size - 1)) / sampling_rate
+        self._curves = [self._plot.plot(antialias=True) for _ in range(nb_channels)]
+        for curve in self._curves:
+            curve.setClipToView(True)
+
         # Top-to-bottom on screen: AF8 … NOSE (index 0 at top, index 7 at bottom).
         self._channel_offsets = [
-            100.0 * (nb_channels - 1 - j) for j in range(nb_channels)
+            ROW_SPACING_UV * (nb_channels - 1 - j) for j in range(nb_channels)
         ]
-        self._channel_labels: list[pg.TextItem] = []
         channel_names = HermesConstants.CHANNEL_NAMES[:nb_channels]
-        for j, name in enumerate(channel_names):
-            label = pg.TextItem(name, anchor=(1.0, 0.5), color=pg.intColor(j))
-            label.setPos(-5, self._channel_offsets[j])
-            self._plot.addItem(label)
-            self._channel_labels.append(label)
+        self._plot.getAxis("left").setTicks(
+            [[(self._channel_offsets[j], name) for j, name in enumerate(channel_names)], []]
+        )
+        self._plot.getAxis("left").setWidth(64)
+        set_label(self._plot, "bottom", "Time", units="s")
+        self._plot.setXRange(-WINDOW_S, 0.55, padding=0)
+        self._plot.setLimits(xMin=-WINDOW_S, xMax=0.55)
+
+        # Scale bar on the right of "now", spanning the bottom row.
+        bar_x = 0.18
+        self._scale_bar = self._plot.plot(
+            [bar_x, bar_x], [-SCALE_BAR_UV / 2, SCALE_BAR_UV / 2], antialias=True
+        )
+        self._scale_label = pg.TextItem(f"{SCALE_BAR_UV:.0f} µV", anchor=(0.0, 0.5))
+        self._scale_label.setPos(bar_x + 0.05, 0.0)
+        self._plot.addItem(self._scale_label)
+        self.refresh_theme()
 
         if apply_filter:
             b, a = _butter_bandpass(lowcut, highcut, fs=sampling_rate, order=order)
@@ -97,6 +118,17 @@ class RealtimeEegPlot(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self._win, stretch=1)
+
+    def refresh_theme(self) -> None:
+        """Re-apply the plot colours of the current theme."""
+        c = plot_colors()
+        style_view(self._win)
+        style_plot(self._plot, grid=True)
+        self._plot.showGrid(x=True, y=False, alpha=c.grid_alpha)
+        for curve in self._curves:
+            curve.setPen(pen(c.ink, 1.2))
+        self._scale_bar.setPen(pen(c.text, 2))
+        self._scale_label.setColor(c.axis)
 
     def set_ear_r_re_reference(self, enabled: bool) -> None:
         """Subtract EAR_R/2 from all channels before filtering (matches offline loadEXG re_reference)."""
@@ -165,7 +197,7 @@ class RealtimeEegPlot(QWidget):
     def clear_buffers(self) -> None:
         for j in range(self._nb_channels):
             self._data_buffers[j].fill(0.0)
-            self._curves[j].setData(self._data_buffers[j] + self._channel_offsets[j])
+            self._curves[j].setData(self._time, self._data_buffers[j] + self._channel_offsets[j])
 
     def add_samples(self, samples: np.ndarray) -> None:
         """Append rows of shape (n, nb_channels) to the scrolling buffers.
@@ -210,4 +242,4 @@ class RealtimeEegPlot(QWidget):
             else:
                 buf[:-n] = buf[n:]
                 buf[-n:] = col
-            self._curves[j].setData(buf + self._channel_offsets[j])
+            self._curves[j].setData(self._time, buf + self._channel_offsets[j])

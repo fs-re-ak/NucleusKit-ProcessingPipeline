@@ -839,6 +839,12 @@ class RealtimeViewerPage(QWidget):
             return
         self._eeg_plot.set_nlms_predictor_mask(dialog.predictor_mask())
 
+    def refresh_theme(self) -> None:
+        """Called by the main window after a theme change."""
+        for plot in (self._eeg_plot, self._hermes_motion_plot, self._shimmer_plot):
+            plot.refresh_theme()
+        self._scan_spinner.set_color(current_palette().accent)
+
     def can_leave(self) -> bool:
         """Called by the main window before another page is shown."""
         if self._connecting:
