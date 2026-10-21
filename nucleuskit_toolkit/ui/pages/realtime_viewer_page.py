@@ -33,8 +33,8 @@ from PySide6.QtWidgets import (
 from nucleuskit_toolkit.hermes.realtime.proxy import HermesBleProxy
 from nucleuskit_toolkit.shimmer import ShimmerSerialProxy
 from nucleuskit_toolkit.ui.realtime_eeg_plot import RealtimeEegPlot
-from nucleuskit_toolkit.ui.realtime_nlms_config_dialog import NlmsPredictorConfigDialog
 from nucleuskit_toolkit.ui.realtime_hermes_motion_plot import RealtimeHermesMotionPlot
+from nucleuskit_toolkit.ui.realtime_nlms_config_dialog import NlmsPredictorConfigDialog
 from nucleuskit_toolkit.ui.realtime_shimmer_plot import RealtimeShimmerPlot
 
 PAGE_DEVICE = 0

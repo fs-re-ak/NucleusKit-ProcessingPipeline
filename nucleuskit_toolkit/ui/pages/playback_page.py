@@ -1200,7 +1200,9 @@ class PlaybackPage(QWidget):
             mirror.parent.mkdir(parents=True, exist_ok=True)
             mirror.write_text(payload, encoding="utf-8")
         except OSError as e:
-            QMessageBox.warning(self, "Playback", f"Annotations saved to features/events but could not mirror to results/:\n{e}")
+            QMessageBox.warning(
+                self, "Playback", f"Annotations saved to features/events but could not mirror to results/:\n{e}"
+            )
         self._annotations_dirty = False
         self._save_ann.setEnabled(False)
 
@@ -1235,7 +1237,7 @@ class PlaybackPage(QWidget):
         box.setWindowTitle("Playback")
         box.setText("Save changes to playback annotations?")
         save_btn = box.addButton("Save", QMessageBox.ButtonRole.AcceptRole)
-        discard_btn = box.addButton("Discard", QMessageBox.ButtonRole.DestructiveRole)
+        box.addButton("Discard", QMessageBox.ButtonRole.DestructiveRole)
         cancel_btn = box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
         box.setIcon(QMessageBox.Icon.Question)
         box.exec()
@@ -1270,7 +1272,9 @@ class PlaybackPage(QWidget):
         self._metrics_timer.stop()
 
     def _on_metrics_tick(self) -> None:
-        self._metrics_position_ms = min(self._metrics_position_ms + self._metrics_timer.interval(), self._metrics_span_ms)
+        self._metrics_position_ms = min(
+            self._metrics_position_ms + self._metrics_timer.interval(), self._metrics_span_ms
+        )
         self._slider.blockSignals(True)
         self._slider.setValue(self._metrics_position_ms)
         self._slider.blockSignals(False)
