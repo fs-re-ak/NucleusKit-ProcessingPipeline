@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nucleuskit-toolkit"
-version = "2.0.0"
+version = "2.1.0"
 description = "Nucleus-Kit offline processing toolkit (Hermes EEG/EMG, Shimmer PPG/EDA)"
 readme = "README.md"
 license = { text = "GPL-3.0-or-later" }

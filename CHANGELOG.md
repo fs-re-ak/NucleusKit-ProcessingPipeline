@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.1.0
+
+### Removed
+
+- UWB indoor positioning (`position/uwb_processor.py`, the `uwb` pipeline step): it is no longer part of Nucleus-Kit.
+  Sessions are no longer given `results/positions.csv`, `results/zones.csv` or `features/antennas.csv`. GPS is unchanged.
+
+### Fixed
+
+- Lint: `ruff check` is clean.
+
 ## 2.0.0
 
 The processing is now [re-ak-core](https://github.com/fs-re-ak/re-ak-core) 1.0.0a1, RE-AK's open processing core,
