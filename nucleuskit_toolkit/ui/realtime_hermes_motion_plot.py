@@ -10,7 +10,16 @@ import numpy as np
 import pyqtgraph as pg
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
-from nucleuskit_toolkit.ui.plot_style import add_legend, pen, plot_colors, set_label, set_title, style_plot, style_view
+from nucleuskit_toolkit.ui.plot_style import (
+    add_legend,
+    lock_view,
+    pen,
+    plot_colors,
+    set_label,
+    set_title,
+    style_plot,
+    style_view,
+)
 
 LABEL_ACCEL = "Accelerometer (x,y,z)"
 LABEL_GYRO = "Gyroscope (x,y,z)"
@@ -57,8 +66,7 @@ class RealtimeHermesMotionPlot(QWidget):
 
         self._win = pg.GraphicsLayoutWidget(title="Hermes motion")
         self._plot = self._win.addPlot()
-        self._plot.setMenuEnabled(False)
-        self._plot.hideButtons()
+        lock_view(self._plot)
         # The motion notification rate varies, so the x axis counts samples (newest on the right).
         set_label(self._plot, "bottom", "Samples")
 

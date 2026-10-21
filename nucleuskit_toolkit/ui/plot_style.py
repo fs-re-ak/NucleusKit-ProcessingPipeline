@@ -116,6 +116,13 @@ def style_plot(plot: pg.PlotItem, *, grid: bool = True) -> None:
         style_legend(legend)
 
 
+def lock_view(plot: pg.PlotItem) -> None:
+    """No zoom, pan or context menu: the view keeps its default scale (real-time plots)."""
+    plot.setMenuEnabled(False)
+    plot.hideButtons()
+    plot.getViewBox().setMouseEnabled(x=False, y=False)
+
+
 def set_title(plot: pg.PlotItem, text: str) -> None:
     plot.setTitle(text, color=plot_colors().text, size="11pt")
 

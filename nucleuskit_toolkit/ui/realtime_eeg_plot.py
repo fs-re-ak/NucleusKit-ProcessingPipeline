@@ -23,7 +23,7 @@ from reak_core.eeg.nlms import (
 from scipy.signal import butter, lfilter, lfilter_zi
 
 from nucleuskit_toolkit.hermes.constants import HermesConstants
-from nucleuskit_toolkit.ui.plot_style import pen, plot_colors, set_label, style_plot, style_view
+from nucleuskit_toolkit.ui.plot_style import lock_view, pen, plot_colors, set_label, style_plot, style_view
 
 ROW_SPACING_UV = 100.0
 SCALE_BAR_UV = 100.0
@@ -61,8 +61,7 @@ class RealtimeEegPlot(QWidget):
 
         self._win = pg.GraphicsLayoutWidget(title="Real-time EEG")
         self._plot = self._win.addPlot()
-        self._plot.setMenuEnabled(False)
-        self._plot.hideButtons()
+        lock_view(self._plot)
 
         buffer_size = int(sampling_rate * WINDOW_S)
         self._data_buffers = [np.zeros(buffer_size) for _ in range(nb_channels)]

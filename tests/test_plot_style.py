@@ -49,3 +49,14 @@ def test_realtime_plots_recolour_on_theme_change(app) -> None:
     assert eeg._curves[0].opts["pen"].color() == QColor(plot_style.LIGHT.ink)
     assert [c.opts["pen"].color() for c in motion._curves] == [QColor(x) for x in plot_style.LIGHT.xyz]
     assert eeg._win.backgroundBrush().color() == QColor(plot_style.LIGHT.background)
+
+
+def test_realtime_plots_cannot_be_zoomed_or_panned(app) -> None:
+    from nucleuskit_toolkit.ui.realtime_eeg_plot import RealtimeEegPlot
+    from nucleuskit_toolkit.ui.realtime_hermes_motion_plot import RealtimeHermesMotionPlot
+    from nucleuskit_toolkit.ui.realtime_shimmer_plot import RealtimeShimmerPlot
+
+    for widget in (RealtimeEegPlot(), RealtimeHermesMotionPlot(), RealtimeShimmerPlot()):
+        vb = widget._plot.getViewBox()
+        assert vb.state["mouseEnabled"] == [False, False]
+        assert vb.menu is None or not widget._plot.menuEnabled()

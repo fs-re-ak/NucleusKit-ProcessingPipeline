@@ -11,7 +11,16 @@ import pyqtgraph as pg
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 from nucleuskit_toolkit.shimmer.constants import ShimmerConstants
-from nucleuskit_toolkit.ui.plot_style import add_legend, pen, plot_colors, set_label, set_title, style_plot, style_view
+from nucleuskit_toolkit.ui.plot_style import (
+    add_legend,
+    lock_view,
+    pen,
+    plot_colors,
+    set_label,
+    set_title,
+    style_plot,
+    style_view,
+)
 
 # Combo box display string (user-requested exact label)
 SHIMMER_COMBO_LABEL_IMU = "IMU (x,y,z)"
@@ -39,8 +48,7 @@ class RealtimeShimmerPlot(QWidget):
 
         self._win = pg.GraphicsLayoutWidget(title="Real-time Shimmer")
         self._plot = self._win.addPlot()
-        self._plot.setMenuEnabled(False)
-        self._plot.hideButtons()
+        lock_view(self._plot)
         set_label(self._plot, "bottom", "Time", units="s")
 
         self._legend = add_legend(self._plot)
