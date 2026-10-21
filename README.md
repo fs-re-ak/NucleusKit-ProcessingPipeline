@@ -11,7 +11,12 @@ Since version 2.0.0 the processing itself (heart dynamics, arousal, cognition, e
   - [Tools submenu](#tools-submenu)
 - [Requirements](#requirements)
 - [Install](#install)
+  - [From PyPI](#from-pypi)
+  - [From source (development)](#from-source-development)
+  - [Upgrade and uninstall](#upgrade-and-uninstall)
 - [Run](#run)
+  - [Desktop shortcut (Windows)](#desktop-shortcut-windows)
+  - [Troubleshooting](#troubleshooting)
 - [Session layout](#session-layout)
   - [Top-level folders](#top-level-folders)
   - [rawData/ — typical inputs](#rawdata--typical-inputs)
@@ -54,62 +59,146 @@ After `python -m nucleuskit_toolkit`, the home screen offers:
 
 ## Requirements
 
-- Python 3.10+
-- Core dependencies are declared in [`pyproject.toml`](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/blob/main/pyproject.toml). [`requirements.txt`](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/blob/main/requirements.txt) is a flat install file that covers all dependencies including the optional GUI extras in one go.
+- **Python 3.10, 3.11 or 3.12** (3.12 recommended). Check with `python --version` (`py --version` on Windows).
+  On Windows, install it from [python.org](https://www.python.org/downloads/windows/) and tick **Add python.exe to
+  PATH** in the installer.
+- **ffmpeg** (optional): only for POV movie conversion and session video rotation. Point Nucleus-Kit to it with
+  `ffmpeg_dir` (see [Optional POV / ffmpeg configuration](#optional-pov--ffmpeg-configuration)).
+- Dependencies are declared in [`pyproject.toml`](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/blob/main/pyproject.toml);
+  [`requirements.txt`](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/blob/main/requirements.txt) pins the
+  exact versions that were tested, GUI extras included.
+
+Install Nucleus-Kit in its **own virtual environment**: its emotion models need scikit-learn 1.6, which must not be
+upgraded by another tool installed next to it.
 
 ## Install
 
-From PyPI, with the **desktop interface** (PySide6 / Qt 6, optional `gui` extra):
+### From PyPI
 
-```bash
-pip install "nucleuskit-toolkit[gui]"
+**Windows (PowerShell)**
+
+```powershell
+python -m venv "$env:USERPROFILE\nucleuskit"
+& "$env:USERPROFILE\nucleuskit\Scripts\python.exe" -m pip install --upgrade pip
+& "$env:USERPROFILE\nucleuskit\Scripts\python.exe" -m pip install "nucleuskit-toolkit[gui]"
+& "$env:USERPROFILE\nucleuskit\Scripts\nucleuskit-toolkit.exe" --help
 ```
 
-Without the `gui` extra only the command line (`nucleuskit-toolkit --session <folder>`) is available.
-
-For development, from a clone of this repository (tests + linter + GUI):
+**macOS / Linux**
 
 ```bash
-pip install ".[dev,gui]"
+python3 -m venv ~/nucleuskit
+~/nucleuskit/bin/python -m pip install --upgrade pip
+~/nucleuskit/bin/python -m pip install "nucleuskit-toolkit[gui]"
+~/nucleuskit/bin/nucleuskit-toolkit --help
 ```
 
-To change re-ak-core at the same time, install a clone of it in editable mode first: it satisfies the
-`re-ak-core>=1.0.1,<1.1` requirement, so pip keeps it.
+The `gui` extra installs the desktop interface (PySide6 / Qt 6), Bluetooth and serial streaming and MQTT. Without it
+only headless processing (`--session`) is available. [re-ak-core](https://github.com/fs-re-ak/re-ak-core), the
+processing core, is installed automatically.
+
+With [pipx](https://pipx.pypa.io), which creates the environment for you and puts the commands on your PATH:
 
 ```bash
-pip install -e ../re-ak-core
-pip install -e ".[dev,gui]"
+pipx install "nucleuskit-toolkit[gui]"
 ```
+
+### From source (development)
+
+Clone this repository and [re-ak-core](https://github.com/fs-re-ak/re-ak-core) side by side, then install both in
+editable mode (changes in either clone apply without reinstalling). This is also the way to install before a version is
+published on PyPI.
+
+**Windows (PowerShell)**
+
+```powershell
+git clone https://github.com/fs-re-ak/re-ak-core.git
+git clone https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline.git
+cd NucleusKit-ProcessingPipeline
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -e ..\re-ak-core
+.\.venv\Scripts\python.exe -m pip install -e ".[dev,gui]"
+.\.venv\Scripts\python.exe -m pytest
+```
+
+**macOS / Linux**
+
+```bash
+git clone https://github.com/fs-re-ak/re-ak-core.git
+git clone https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline.git
+cd NucleusKit-ProcessingPipeline
+python3 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install -e ../re-ak-core
+.venv/bin/python -m pip install -e ".[dev,gui]"
+.venv/bin/python -m pytest
+```
+
+The re-ak-core clone satisfies Nucleus-Kit's `re-ak-core>=1.0.1,<1.1` requirement, so pip keeps it instead of
+downloading the published one. To reproduce the tested environment exactly, install `requirements.txt` instead of the
+`[dev,gui]` extras (it needs re-ak-core on PyPI).
+
+### Upgrade and uninstall
+
+```bash
+python -m pip install --upgrade "nucleuskit-toolkit[gui]"
+python -m pip uninstall nucleuskit-toolkit re-ak-core
+```
+
+Use the environment's `python` (for example `"$env:USERPROFILE\nucleuskit\Scripts\python.exe"`), or delete the
+environment folder to remove everything. With pipx: `pipx upgrade nucleuskit-toolkit` / `pipx uninstall nucleuskit-toolkit`.
 
 ## Run
 
-**Graphical mode** (main menu above):
+Run the commands with the environment's executables (as below), or activate the environment first
+(`.\.venv\Scripts\Activate.ps1` in PowerShell, `source .venv/bin/activate` on macOS / Linux) and drop the path.
 
-```bash
-python -m nucleuskit_toolkit
+**Graphical mode** (main menu above; needs the `gui` extra):
+
+```powershell
+& "$env:USERPROFILE\nucleuskit\Scripts\nucleuskit-toolkit.exe"
 ```
 
-Requires the `gui` extra.
+The same as `python -m nucleuskit_toolkit`. From a source checkout, `launch_app.bat` runs `python -m nucleuskit_toolkit`
+with the first `python` on the PATH: activate the environment before running it.
+
+**Headless mode** (one session, then exit; for automation and CI):
+
+```powershell
+nucleuskit-toolkit --session "D:\path\to\session_folder"
+```
+
+Options:
+
+| Option | Effect |
+|---|---|
+| `--session DIR` | Process this session folder and exit (no GUI) |
+| `--config JSON` | Optional POV / ffmpeg settings, merged after the config files of the current directory |
+| `--emotion-model NAME` | Emotion model release (default `classical-emotion-2.6.0`; `nucleuskit-toolkit --help` lists them) |
+
+Outputs are written inside the session folder (see [Session layout](#session-layout)). Existing outputs are reused:
+delete a file under `results/` to recompute that step.
 
 Replace the packaged logo anytime with your own PNG at [`nucleuskit_toolkit/ui/resources/branding/logo.png`](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/blob/main/nucleuskit_toolkit/ui/resources/branding/logo.png) (same path in an installed package).
 
-**Headless mode** (automation / CI):
+### Desktop shortcut (Windows)
 
-```bash
-python -m nucleuskit_toolkit --session "D:\path\to\session_folder"
-```
+1. Right-click the desktop, **New → Shortcut**.
+2. Location: the environment's `pythonw.exe` followed by `-m nucleuskit_toolkit`, for example
+   `C:\Users\<you>\nucleuskit\Scripts\pythonw.exe -m nucleuskit_toolkit` (`pythonw` opens no console window).
+3. Name it **Nucleus-Kit**, then in **Properties → Start in**, choose the folder that holds your
+   `nucleuskit_toolkit_config.json`, if you use one.
 
-Optional POV / ffmpeg JSON (merged after any config files found in the current working directory):
+### Troubleshooting
 
-```bash
-python -m nucleuskit_toolkit --session "D:\path\to\session" --config "D:\path\to\config.json"
-```
-
-After install, the same entry point is available as:
-
-```bash
-nucleuskit-toolkit --session "D:\path\to\session_folder"
-```
+| Problem | Fix |
+|---|---|
+| `Activate.ps1 cannot be loaded because running scripts is disabled` | Call the environment's `python.exe` / `nucleuskit-toolkit.exe` by its path, as above, instead of activating |
+| `No matching distribution found for re-ak-core` | That version is not on PyPI yet: install [from source](#from-source-development) |
+| pip reports a conflict on `scikit-learn` | Another package needs a newer scikit-learn: install Nucleus-Kit in its own environment |
+| `ModuleNotFoundError: No module named 'PySide6'` | Install the `gui` extra: `pip install "nucleuskit-toolkit[gui]"` |
+| `python` is not recognized (Windows) | Use `py -3.12` instead of `python`, or reinstall Python with **Add python.exe to PATH** |
 
 ## Session layout
 
