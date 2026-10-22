@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
 from nucleuskit_toolkit.camera.processing import (
     MARKER_FILENAME,
     VIDEO_BASENAME,

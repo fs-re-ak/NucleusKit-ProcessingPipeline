@@ -332,7 +332,7 @@ class RecordingMergePage(QWidget):
         self._insert_log(
             f"\n--- Starting merge of {len(folders)} recordings ---\n"
             + "".join(f"  [{i + 1}] {f}\n" for i, f in enumerate(folders))
-            + (f"  (video merge skipped)\n" if skip_video else "")
+            + ("  (video merge skipped)\n" if skip_video else "")
             + "\n"
         )
 

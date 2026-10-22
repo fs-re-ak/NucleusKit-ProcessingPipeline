@@ -1,13 +1,23 @@
-"""Submenu for auxiliary tools (Channel Fixer, …)."""
+"""Auxiliary tools for processed sessions (Channel Fixer, …), shown as a grid of cards."""
 
 from __future__ import annotations
 
 from PySide6.QtCore import Signal
-from PySide6.QtWidgets import QHBoxLayout, QPushButton, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QGridLayout, QVBoxLayout, QWidget
+
+from nucleuskit_toolkit.ui.widgets import ChoiceCard
+
+TOOLS = (
+    ("open_channel_fixer", "Channel Fixer", "Repair a single bad RMS channel with the channel-fix model."),
+    ("open_channel_gain", "Channel gain adjustment", "Adjust per-channel RMS gain and zero offset."),
+    ("open_revert_original", "Revert to original", "Restore the RMS features from the frozen baseline."),
+    ("open_ppg_fixer", "PPG Fixer", "Re-run PPG artifact rejection and heart dynamics."),
+    ("open_eeg_regression", "EEG Regression Denoising", "Remove shared muscle noise from the EEG."),
+    ("open_recording_merge", "Recording Merger", "Join up to 5 recordings into one session."),
+)
 
 
 class ToolsMenuPage(QWidget):
-    go_main_menu = Signal()
     open_channel_fixer = Signal()
     open_channel_gain = Signal()
     open_revert_original = Signal()
@@ -17,33 +27,16 @@ class ToolsMenuPage(QWidget):
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-
-        self._back = QPushButton("Main menu")
-        self._back.setProperty("secondary", True)
-        self._back.clicked.connect(self.go_main_menu.emit)
-
-        top = QHBoxLayout()
-        top.addStretch(1)
-        top.addWidget(self._back)
-
-        def big_button(text: str, slot) -> QPushButton:
-            b = QPushButton(text)
-            b.setMinimumHeight(52)
-            b.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            b.clicked.connect(slot)
-            return b
-
-        col = QVBoxLayout()
-        col.setSpacing(14)
-        col.addWidget(big_button("Channel Fixer", self.open_channel_fixer.emit))
-        col.addWidget(big_button("Channel gain adjustment", self.open_channel_gain.emit))
-        col.addWidget(big_button("Revert to original", self.open_revert_original.emit))
-        col.addWidget(big_button("PPG Fixer", self.open_ppg_fixer.emit))
-        col.addWidget(big_button("EEG Regression Denoising", self.open_eeg_regression.emit))
-        col.addWidget(big_button("Recording Merger", self.open_recording_merge.emit))
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(14)
+        grid.setVerticalSpacing(14)
+        for i, (signal_name, title, description) in enumerate(TOOLS):
+            card = ChoiceCard("wrench", title, description)
+            card.set_indicator_visible(False)
+            card.clicked.connect(getattr(self, signal_name).emit)
+            grid.addWidget(card, i // 2, i % 2)
 
         outer = QVBoxLayout(self)
-        outer.addLayout(top)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.addLayout(grid)
         outer.addStretch(1)
-        outer.addLayout(col)
-        outer.addStretch(2)

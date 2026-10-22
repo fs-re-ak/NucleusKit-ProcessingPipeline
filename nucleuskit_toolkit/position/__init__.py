@@ -1,6 +1,5 @@
-﻿"""Indoor / outdoor position processing (GPS, UWB)."""
+﻿"""Outdoor position processing (GPS)."""
 
 from nucleuskit_toolkit.position.gps_processor import processGPS
-from nucleuskit_toolkit.position.uwb_processor import processUWB
 
-__all__ = ["processGPS", "processUWB"]
+__all__ = ["processGPS"]

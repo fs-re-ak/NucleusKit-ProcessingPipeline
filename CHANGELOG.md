@@ -1,5 +1,61 @@
 # Changelog
 
+## 2.2.0
+
+### Changed
+
+- New application layout: a sidebar (Process, Real-time viewer, Playback, Tools, MQTT Controller, Settings,
+  Documentation, About) replaces the main menu and the "Main menu" buttons; every page has a title, a one-line
+  description and a Help link.
+- New visual design with refreshed dark and light themes: cards, step numbers, visible check boxes and radio buttons,
+  outlined secondary buttons; orange is reserved for the Run pipeline action.
+- **Process** page (formerly Offline processing) redesigned: one column with mode cards, the processing options
+  ending with Run pipeline as the main action, and the processing log below. The selected folder is checked in the
+  background without moving any file (session name, duration, recorded signals; for a dataset, the number of
+  sessions and of incomplete ones). Run stays disabled until the folder is valid, and invalid folders are explained
+  under the path field.
+- The NLMS option is labelled "EEG channels only": it never applies to the emotion (fEMG) features.
+- The emotion model selector marks the recommended release; options start from their defaults each time the page
+  opens.
+- Opening a page for the first time shows a loading screen while its libraries load, and those libraries are loaded
+  in the background after start-up, so the Real-time viewer no longer looks frozen on first use.
+- The Hermes Bluetooth scan lists devices as soon as they are found, shows a spinner and the number found, and can
+  be stopped; connecting stops the scan.
+- Plots follow the light / dark theme with readable axes. The real-time EEG is a stacked display in one ink colour
+  with channel names on the left axis, time in seconds and a 100 µV scale bar; motion traces are X red, Y teal,
+  Z yellow with a legend. Playback uses the product emotion palette, one fixed colour per emotion or metric (Fear
+  and Contempt shared a colour before), with darker variants of the pale colours in the light theme; series with
+  no data in the session are not shown, and the legend text stays in the text colour.
+
+### Added
+
+- **Cancel** while processing: the step in progress finishes, the remaining steps (and, for a dataset, the remaining
+  sessions) are skipped and recorded as cancelled in `results/processing.json`.
+- **About** page.
+
+### Removed
+
+- The main menu page and the progress bar of the processing page.
+
+## 2.1.0
+
+### Changed
+
+- Published on PyPI: `pip install "nucleuskit-toolkit[gui]"`. re-ak-core is now a regular dependency
+  (`re-ak-core>=1.0.1,<1.1`, from PyPI) instead of a Git URL, so Git is no longer needed to install.
+- Dependencies updated to their latest versions (numpy 2.5, pandas 2.3, matplotlib 3.11, OpenCV 5, PySide6 6.12,
+  pyqtgraph 0.14, bleak 3); scipy stays on 1.17 and scikit-learn on 1.6, as in re-ak-core.
+- SPDX license metadata, project URLs and classifiers.
+
+### Removed
+
+- UWB indoor positioning (`position/uwb_processor.py`, the `uwb` pipeline step): it is no longer part of Nucleus-Kit.
+  Sessions are no longer given `results/positions.csv`, `results/zones.csv` or `features/antennas.csv`. GPS is unchanged.
+
+### Fixed
+
+- Lint: `ruff check` is clean.
+
 ## 2.0.0
 
 The processing is now [re-ak-core](https://github.com/fs-re-ak/re-ak-core) 1.0.0a1, RE-AK's open processing core,

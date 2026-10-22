@@ -10,7 +10,16 @@ import numpy as np
 import pyqtgraph as pg
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
-pg.setConfigOptions(foreground="k")
+from nucleuskit_toolkit.ui.plot_style import (
+    add_legend,
+    lock_view,
+    pen,
+    plot_colors,
+    set_label,
+    set_title,
+    style_plot,
+    style_view,
+)
 
 LABEL_ACCEL = "Accelerometer (x,y,z)"
 LABEL_GYRO = "Gyroscope (x,y,z)"
@@ -56,12 +65,14 @@ class RealtimeHermesMotionPlot(QWidget):
         top.addWidget(self._combo, stretch=1)
 
         self._win = pg.GraphicsLayoutWidget(title="Hermes motion")
-        self._plot = self._win.addPlot(title=LABEL_ACCEL)
-        self._plot.showGrid(x=True, y=True)
-        self._plot.setLabel("bottom", "Time (samples)")
+        self._plot = self._win.addPlot()
+        lock_view(self._plot)
+        # The motion notification rate varies, so the x axis counts samples (newest on the right).
+        set_label(self._plot, "bottom", "Samples")
 
-        pens = [pg.intColor(i, hues=3, values=2) for i in range(3)]
-        self._curves = [self._plot.plot(pen=pens[i]) for i in range(3)]
+        add_legend(self._plot)
+        self._curves = [self._plot.plot(name=axis, antialias=True) for axis in "XYZ"]
+        self.refresh_theme()
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -69,6 +80,13 @@ class RealtimeHermesMotionPlot(QWidget):
         layout.addWidget(self._win, stretch=1)
 
         self._on_mode_changed(self._combo.currentIndex())
+
+    def refresh_theme(self) -> None:
+        """Re-apply the plot colours of the current theme."""
+        style_view(self._win)
+        style_plot(self._plot)
+        for curve, color in zip(self._curves, plot_colors().xyz):
+            curve.setPen(pen(color, 2))
 
     def _active_buffers(self) -> list[np.ndarray]:
         idx = self._combo.currentIndex()
@@ -80,14 +98,14 @@ class RealtimeHermesMotionPlot(QWidget):
 
     def _on_mode_changed(self, index: int) -> None:
         if index == 0:
-            self._plot.setTitle(LABEL_ACCEL)
-            self._plot.setLabel("left", "Acceleration (g)")
+            set_title(self._plot, LABEL_ACCEL)
+            set_label(self._plot, "left", "Acceleration (g)")
         elif index == 1:
-            self._plot.setTitle(LABEL_GYRO)
-            self._plot.setLabel("left", "Angular rate (dps)")
+            set_title(self._plot, LABEL_GYRO)
+            set_label(self._plot, "left", "Angular rate (dps)")
         else:
-            self._plot.setTitle(LABEL_COMPASS)
-            self._plot.setLabel("left", "Magnetometer (gauss)")
+            set_title(self._plot, LABEL_COMPASS)
+            set_label(self._plot, "left", "Magnetometer (gauss)")
         # Apply the per-mode offsets so X/Y/Z traces stay visibly separated.
         self._offsets = _MODE_OFFSETS[index].copy()
         self._redraw_active()

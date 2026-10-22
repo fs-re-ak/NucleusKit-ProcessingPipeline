@@ -1,6 +1,6 @@
 ﻿# NucleusKit Processing Toolkit — Technical Overview
 
-> **Since Nucleus-Kit 2.0.0** `nucleuskit_toolkit/pipeline.py` runs re-ak-core's default pipeline (`reak_core.pipeline.Pipeline.default()`) and adds the local steps: POV movie conversion, video rotation (after `prepare`), UWB and GPS (at the end). The step descriptions below are those of 1.1.
+> **Since Nucleus-Kit 2.0.0** `nucleuskit_toolkit/pipeline.py` runs re-ak-core's default pipeline (`reak_core.pipeline.Pipeline.default()`) and adds the local steps: POV movie conversion, video rotation (after `prepare`) and GPS (at the end). UWB positioning was removed in 2.1.0. The step descriptions below are those of 1.1.
 
 **Package:** `nucleuskit_toolkit`  
 **Entry point:** `python -m nucleuskit_toolkit` (GUI) or `--session <dir>` (headless CLI)  
@@ -36,8 +36,7 @@ The orchestrator assembles an ordered list of processing steps during `configure
 | 8 | `computeEmotions` | `hermes/processor/emotions_processor/` | EMG → two-stage classifier → emotion probabilities → `results/Emotions.csv` |
 | 9 | `eventProcessor` | `events/processor.py` | Split `rawEvents.csv` into feature and web event CSVs |
 | 10 | `seedPlaybackAnnotations` | `events/eventsProcessor.py` | Generate `features/events/playback_annotations.json` |
-| 11 | `processUWB` | `position/uwb_processor.py` | UWB multilateration → `results/positions.csv` |
-| 12 | `processGPS` | `position/gps_processor.py` | GPS interpolation → `results/gpsDf.csv` |
+| 11 | `processGPS` | `position/gps_processor.py` | GPS interpolation → `results/gpsDf.csv` |
 
 ---
 
@@ -53,7 +52,6 @@ A processed session folder has the following canonical structure:
 │   ├── rawEvents.csv           # Raw event log
 │   ├── event.csv               # Processed event timestamps (for playback seeding)
 │   ├── gps.csv / gps.tmp       # GPS log (unix_ts, lat, lon)
-│   ├── uwb_0.csv / uwb.tmp     # UWB DIST-frame log
 │   └── video.mp4               # Optional POV recording
 │
 ├── features/                   # Intermediate computations (traceability artefacts)
@@ -88,8 +86,7 @@ A processed session folder has the following canonical structure:
 │   ├── Arousal.csv             # 2 Hz: TonicEDA, PhasicEDA
 │   ├── Cognition.csv           # 2 Hz: Engagement
 │   ├── Emotions.csv            # 2 Hz: Neutral, Happiness, Anger, Surprise, …
-│   ├── gpsDf.csv               # 2 Hz: Latitude, Longitude
-│   └── positions.csv           # 2 Hz: X, Y (UWB)
+│   └── gpsDf.csv               # 2 Hz: Latitude, Longitude
 │
 └── meta/                       # Session metadata
     └── metainfo.json
@@ -125,7 +122,7 @@ This makes the pipeline safe to re-run after partial failures. To force recomput
 | [pipeline_cognition.md](pipeline_cognition.md) | Hermes EEG → Cognitive Indexes |
 | [pipeline_emotions.md](pipeline_emotions.md) | Hermes EMG → Emotion Classification |
 | [pipeline_events.md](pipeline_events.md) | Raw Events → Feature / Web Events + Playback Annotations |
-| [pipeline_positioning.md](pipeline_positioning.md) | GPS and UWB Positioning |
+| [pipeline_positioning.md](pipeline_positioning.md) | GPS Positioning |
 
 ---
 
@@ -136,7 +133,6 @@ This makes the pipeline safe to re-run after partial failures. To force recomput
 | Shimmer | `shimmer.csv` / `rawShimmer_0.csv` | ~51.2 Hz | col 0 = timestamp, col 4 = EDA (kΩ), col 5 = PPG; header row optional |
 | Hermes | `rawEEG_0.csv` / `eeg.tmp` | 250 Hz | col 0 = timestamp, cols 1–8 = EXG; header row optional |
 | GPS | `gps.csv` / `gps.tmp` | variable | unix_ts, latitude, longitude; header row optional |
-| UWB | `uwb_0.csv` / `uwb.tmp` | variable | DIST-frame: tag, antenna, distance |
 
 ---
 

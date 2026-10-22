@@ -24,7 +24,7 @@ def test_import_pipeline() -> None:
 
     pipe = NucleusKitProcessingToolkit(None)
     assert pipe.processingSteps[:3] == ["prepare", "video_rotation", "metainfo"]
-    assert pipe.processingSteps[-2:] == ["uwb", "gps"]
+    assert pipe.processingSteps[-1] == "gps"
 
 
 @pytest.mark.parametrize(

@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 import pyqtgraph as pg
 from PySide6.QtCore import QObject, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QColor, QIcon, QKeySequence, QShortcut
+from PySide6.QtGui import QIcon, QKeySequence, QShortcut
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
@@ -42,16 +42,15 @@ from PySide6.QtWidgets import (
 )
 from reak_core.models import EMOTION_COLUMNS
 
-PLAYBACK_EMOTION_COLORS: dict[str, str] = {
-    "Neutral": "#a0a0a0",
-    "Anger": "#ab3852",
-    "Happiness": "#e0ca3c",
-    "Sadness": "#00798c",
-    "Fear": "#0f3899",
-    "Disgust": "#426d40",
-    "Surprise": "#aba1f4",
-    "Contempt": "#0f3899",
-}
+from nucleuskit_toolkit.ui.plot_style import (
+    EMOTION_ORDER,
+    pen,
+    plot_colors,
+    set_label,
+    style_plot,
+    style_view,
+    translucent,
+)
 
 _Z_NEUTRAL = -10.0
 _Z_EMOTION_BASE = 0.0
@@ -65,20 +64,39 @@ ANNOTATIONS_SCHEMA_VERSION = 1
 # Focus, CognitiveLoad, Frontal, and Lateralization are kept for future use.
 COGNITION_COLUMNS: set[str] = {"Engagement"}
 
-# Pens for annotation graphics
-_PEN_POINT = pg.mkPen("#88ccee", width=2)
-_PEN_POINT_SEL = pg.mkPen("#ffcc66", width=3)
-_PEN_ZONE = pg.mkPen("#88ccee", width=1)
-_PEN_ZONE_SEL = pg.mkPen("#ffcc66", width=2)
-_BRUSH_ZONE = pg.mkBrush(50, 130, 220, 130)
-_BRUSH_ZONE_SEL = pg.mkBrush(255, 190, 70, 160)
+# Annotation graphics: accent colour, the selected one drawn thicker in the text colour.
+def _pen_point(selected: bool = False):  # type: ignore[no-untyped-def]
+    c = plot_colors()
+    return pen(c.text, 3) if selected else pen(c.accent, 2)
+
+
+def _pen_zone(selected: bool = False):  # type: ignore[no-untyped-def]
+    c = plot_colors()
+    return pen(c.text, 2) if selected else pen(c.accent, 1)
+
+
+def _brush_zone(selected: bool = False):  # type: ignore[no-untyped-def]
+    return pg.mkBrush(translucent(plot_colors().accent, 110 if selected else 50))
+
+
+def _series_color(name: str, index: int) -> str:
+    """Named emotions/metrics keep their colour; other metrics take the non-Neutral slots in column order."""
+    c = plot_colors()
+    if name in EMOTION_ORDER:
+        return c.emotion(name)
+    return c.emotions[index + 1] if index + 1 < len(c.emotions) else c.neutral
+
+
+def _has_data(column: pd.Series) -> bool:
+    """True when the column holds at least one finite, non-zero value."""
+    values = pd.to_numeric(column, errors="coerce").to_numpy(dtype=np.float64)
+    return bool(np.any(np.isfinite(values) & (values != 0.0)))
 
 
 def _emotion_checkbox_stylesheet(hex_color: str) -> str:
-    """QCheckBox: label + square indicator use the series color (acts as legend)."""
+    """QCheckBox: the square indicator uses the series color (acts as legend); the label keeps the text colour."""
     return (
         "QCheckBox {"
-        f" color: {hex_color};"
         " spacing: 6px;"
         " font-weight: 600;"
         "}"
@@ -259,8 +277,8 @@ class PlaybackAnnotationManager(QObject):
 
     def _configure_zone_item(self, reg: pg.LinearRegionItem) -> None:
         reg.setZValue(_Z_ANNOTATION)
-        self._set_region_pen(reg, _PEN_ZONE)
-        reg.setBrush(_BRUSH_ZONE)
+        self._set_region_pen(reg, _pen_zone())
+        reg.setBrush(_brush_zone())
         reg.setSpan(0.0, 1.0)
 
     def set_visible(self, ann_id: str, visible: bool) -> None:
@@ -299,14 +317,13 @@ class PlaybackAnnotationManager(QObject):
     def _apply_selection_style(self) -> None:
         sid = self._selected_id
         for aid, line in self._line_items.items():
-            line.setPen(_PEN_POINT_SEL if aid == sid else _PEN_POINT)
+            line.setPen(_pen_point(aid == sid))
         for aid, reg in self._region_items.items():
-            if aid == sid:
-                self._set_region_pen(reg, _PEN_ZONE_SEL)
-                reg.setBrush(_BRUSH_ZONE_SEL)
-            else:
-                self._set_region_pen(reg, _PEN_ZONE)
-                reg.setBrush(_BRUSH_ZONE)
+            self._set_region_pen(reg, _pen_zone(aid == sid))
+            reg.setBrush(_brush_zone(aid == sid))
+
+    def refresh_theme(self) -> None:
+        self._apply_selection_style()
 
     def _bounds(self) -> tuple[float, float]:
         return self._get_time_bounds()
@@ -341,7 +358,7 @@ class PlaybackAnnotationManager(QObject):
         n = len(self._points) + 1
         ann = _PointAnn(aid, t, f"Event {n}")
         self._points[aid] = ann
-        line = pg.InfiniteLine(pos=t, angle=90, movable=True, pen=_PEN_POINT)
+        line = pg.InfiniteLine(pos=t, angle=90, movable=True, pen=_pen_point())
         line.setZValue(_Z_ANNOTATION)
         line.setVisible(ann.visible)
         setattr(line, "_ann_id", aid)
@@ -499,7 +516,7 @@ class PlaybackAnnotationManager(QObject):
             vis = p.get("visible") is not False
             t = _clamp_t(t, t_min, t_max)
             self._points[aid] = _PointAnn(aid, t, label, visible=vis)
-            line = pg.InfiniteLine(pos=t, angle=90, movable=True, pen=_PEN_POINT)
+            line = pg.InfiniteLine(pos=t, angle=90, movable=True, pen=_pen_point())
             line.setZValue(_Z_ANNOTATION)
             line.setVisible(vis)
             setattr(line, "_ann_id", aid)
@@ -548,12 +565,12 @@ class MetricsPlotWidget(QWidget):
         self._t_min = 0.0
         self._t_max = 1.0
         self._plot = pg.PlotWidget()
-        self._plot.showGrid(x=True, y=True, alpha=0.3)
-        self._plot.setLabel("bottom", "Time (s)")
-        self._plot.setLabel("left", "Probability")
+        set_label(self._plot.getPlotItem(), "bottom", "Time", units="s")
+        set_label(self._plot.getPlotItem(), "left", "Probability")
         self._plot.setYRange(0.0, 1.0, padding=0.02)
         self._curves: list[pg.PlotDataItem] = []
-        self._playhead = pg.InfiniteLine(pos=0.0, angle=90, movable=False, pen=pg.mkPen("w", width=2))
+        self._series: list[tuple[str, QCheckBox, bool]] = []  # name, legend check box, filled
+        self._playhead = pg.InfiniteLine(pos=0.0, angle=90, movable=False, pen=pen(plot_colors().text, 2))
         self._playhead.setZValue(_Z_PLAYHEAD)
 
         # Raw (NaN-preserved) per-curve data stored at load time so smoothing
@@ -594,8 +611,22 @@ class MetricsPlotWidget(QWidget):
         layout.addWidget(self._toggle_bar)
         layout.addWidget(self._smooth_bar)
 
+        self.refresh_theme()
+
     def plot_widget(self) -> pg.PlotWidget:
         return self._plot
+
+    def refresh_theme(self) -> None:
+        """Re-apply the plot colours of the current theme to the plot, the playhead and every series."""
+        style_view(self._plot)
+        style_plot(self._plot.getPlotItem())
+        self._playhead.setPen(pen(plot_colors().text, 2))
+        for i, (curve, (name, cb, filled)) in enumerate(zip(self._curves, self._series)):
+            color = _series_color(name, i)
+            curve.setPen(pen(color, 1.5))
+            if filled:
+                curve.setBrush(pg.mkBrush(color))
+            cb.setStyleSheet(_emotion_checkbox_stylesheet(color))
 
     def _trim_context_menu(self) -> None:
         """Keep only 'View All' in the right-click context menu."""
@@ -688,6 +719,7 @@ class MetricsPlotWidget(QWidget):
         for c in self._curves:
             self._plot.removeItem(c)
         self._curves.clear()
+        self._series.clear()
         self._clear_toggle_widgets()
         try:
             self._plot.removeItem(self._playhead)
@@ -731,8 +763,12 @@ class MetricsPlotWidget(QWidget):
             plot_cols = [c for c in df.columns if c in COGNITION_COLUMNS]
         else:
             plot_cols = [c for c in df.columns if c != "Timestamp"]
+        # Only the series present in this session: drop columns with no non-zero value.
+        plot_cols = [c for c in plot_cols if _has_data(df[c])]
+        if not plot_cols:
+            return f"{filename} has no data to plot."
 
-        self._plot.setLabel("left", y_label)
+        set_label(self._plot.getPlotItem(), "left", y_label)
 
         if y_range is not None:
             self._plot.setYRange(y_range[0], y_range[1], padding=0.02)
@@ -746,27 +782,15 @@ class MetricsPlotWidget(QWidget):
                 self._plot.setYRange(lo - pad, hi + pad, padding=0)
 
         x = ts
-        emotion_idx = 0
         for col in plot_cols:
             y_raw = df[col].to_numpy(dtype=np.float64)   # NaN preserved for smoothing
             self._raw_data.append((x, y_raw))
             y = y_raw  # NaN → natural line break in pyqtgraph (no data gap)
-            hex_color = PLAYBACK_EMOTION_COLORS.get(col)
-            if hex_color is not None:
-                qcol = QColor(hex_color)
-                pen = pg.mkPen(qcol, width=1.5)
-                brush = pg.mkBrush(qcol)
-                style_hex = hex_color
-            else:
-                ic = pg.intColor(emotion_idx, values=1)
-                pen = pg.mkPen(ic, width=1.5)
-                brush = pg.mkBrush(ic)
-                style_hex = QColor(ic).name(QColor.NameFormat.HexRgb)
-                emotion_idx += 1
+            style_hex = _series_color(col, len(self._curves))
 
-            plot_kwargs: dict = {"pen": pen}
+            plot_kwargs: dict = {"pen": pen(style_hex, 1.5)}
             if filled:
-                plot_kwargs["brush"] = brush
+                plot_kwargs["brush"] = pg.mkBrush(style_hex)
                 plot_kwargs["fillLevel"] = 0.0
 
             curve = self._plot.plot(x, y, **plot_kwargs)
@@ -781,6 +805,7 @@ class MetricsPlotWidget(QWidget):
             cb.setStyleSheet(_emotion_checkbox_stylesheet(style_hex))
             cb.toggled.connect(lambda checked, c=curve: c.setVisible(checked))
             self._toggle_layout.addWidget(cb)
+            self._series.append((col, cb, filled))
 
         self._toggle_layout.addStretch(1)
 
@@ -833,8 +858,6 @@ class MetricsPlotWidget(QWidget):
 
 
 class PlaybackPage(QWidget):
-    go_main_menu = Signal()
-
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
 
@@ -954,10 +977,6 @@ class PlaybackPage(QWidget):
         self._splitter.setStretchFactor(0, 1)
         self._splitter.setStretchFactor(1, 1)
 
-        self._back = QPushButton("Main menu")
-        self._back.setProperty("secondary", True)
-        self._back.clicked.connect(self._on_main_menu_clicked)
-
         self._open = QPushButton("Open session…")
         self._open.clicked.connect(self._browse_session)
 
@@ -970,13 +989,12 @@ class PlaybackPage(QWidget):
         self._path_label.setWordWrap(True)
 
         top = QHBoxLayout()
-        top.addWidget(self._back)
         top.addStretch(1)
         top.addWidget(self._open)
         top.addWidget(self._play)
 
         body = QVBoxLayout(self)
-        body.setContentsMargins(12, 12, 12, 12)
+        body.setContentsMargins(0, 0, 0, 0)
         body.addLayout(top)
         body.addWidget(self._path_label)
         body.addWidget(self._splitter, stretch=1)
@@ -996,14 +1014,20 @@ class PlaybackPage(QWidget):
 
         self._refresh_tool_hint()
 
-    def _on_main_menu_clicked(self) -> None:
+    def refresh_theme(self) -> None:
+        """Called by the main window after a theme change."""
+        self._metrics_plot.refresh_theme()
+        self._ann_mgr.refresh_theme()
+
+    def can_leave(self) -> bool:
+        """Called by the main window before another page is shown: offers to save edited annotations."""
         if not self._maybe_discard_dirty():
-            return
+            return False
         self._session_dir = None
         self._ann_mgr.clear()
         self._refresh_annotation_table()
         self._save_ann.setEnabled(False)
-        self.go_main_menu.emit()
+        return True
 
     def _on_tool_button_clicked(self, btn: QAbstractButton) -> None:
         if btn == self._tool_nav:
@@ -1200,7 +1224,9 @@ class PlaybackPage(QWidget):
             mirror.parent.mkdir(parents=True, exist_ok=True)
             mirror.write_text(payload, encoding="utf-8")
         except OSError as e:
-            QMessageBox.warning(self, "Playback", f"Annotations saved to features/events but could not mirror to results/:\n{e}")
+            QMessageBox.warning(
+                self, "Playback", f"Annotations saved to features/events but could not mirror to results/:\n{e}"
+            )
         self._annotations_dirty = False
         self._save_ann.setEnabled(False)
 
@@ -1235,7 +1261,7 @@ class PlaybackPage(QWidget):
         box.setWindowTitle("Playback")
         box.setText("Save changes to playback annotations?")
         save_btn = box.addButton("Save", QMessageBox.ButtonRole.AcceptRole)
-        discard_btn = box.addButton("Discard", QMessageBox.ButtonRole.DestructiveRole)
+        box.addButton("Discard", QMessageBox.ButtonRole.DestructiveRole)
         cancel_btn = box.addButton("Cancel", QMessageBox.ButtonRole.RejectRole)
         box.setIcon(QMessageBox.Icon.Question)
         box.exec()
@@ -1270,7 +1296,9 @@ class PlaybackPage(QWidget):
         self._metrics_timer.stop()
 
     def _on_metrics_tick(self) -> None:
-        self._metrics_position_ms = min(self._metrics_position_ms + self._metrics_timer.interval(), self._metrics_span_ms)
+        self._metrics_position_ms = min(
+            self._metrics_position_ms + self._metrics_timer.interval(), self._metrics_span_ms
+        )
         self._slider.blockSignals(True)
         self._slider.setValue(self._metrics_position_ms)
         self._slider.blockSignals(False)
