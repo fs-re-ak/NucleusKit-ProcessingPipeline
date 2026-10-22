@@ -207,14 +207,14 @@ def stylesheet(p: Palette) -> str:
         background-color: transparent; color: {p.disabled_text}; border-color: {p.border};
     }}
     QPushButton[variant="run"] {{
-        background-color: {p.run}; color: #FFFFFF; border-radius: 12px; padding: 0; min-height: 78px;
+        background-color: {p.run}; color: #FFFFFF; border-radius: 12px; padding: 0; min-height: 56px;
     }}
     QPushButton[variant="run"]:hover {{ background-color: {p.run_hover}; }}
     QPushButton[variant="run"]:pressed {{ background-color: {p.run_pressed}; }}
     QPushButton[variant="run"]:disabled {{ background-color: {p.surface_hover}; color: {p.disabled_text}; }}
     QPushButton[variant="cancel"] {{
         background-color: transparent; color: {p.text}; border: 2px solid {p.muted}; border-radius: 12px;
-        padding: 0; min-height: 74px;
+        padding: 0; min-height: 52px;
     }}
     QPushButton[variant="cancel"]:hover {{ background-color: {p.surface_hover}; }}
     QPushButton[variant="link"] {{

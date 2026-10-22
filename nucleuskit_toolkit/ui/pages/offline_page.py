@@ -1,9 +1,9 @@
 ﻿"""Process Sessions: run the pipeline on a single session or on every session of a dataset folder.
 
-Layout: numbered step cards on the left (1. input, 2. processing options), the run summary with the Run pipeline
-button on the right, the processing log at the bottom. The selected folder is inspected in the background (read
-only) and Run is enabled once it is a valid session or dataset. While running, Run becomes Cancel: the step in
-progress finishes, then the remaining steps (and sessions) are skipped.
+Layout: one column of numbered step cards (1. input, 2. processing options ending with the Run pipeline button),
+then the processing log. The selected folder is inspected in the background (read only) and Run is enabled once it
+is a valid session or dataset. While running, Run becomes Cancel: the step in progress finishes, then the remaining
+steps (and sessions) are skipped.
 """
 
 from __future__ import annotations
@@ -22,7 +22,6 @@ from PySide6.QtWidgets import (
     QComboBox,
     QFileDialog,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QLineEdit,
     QMessageBox,
@@ -44,7 +43,6 @@ from nucleuskit_toolkit.ui.widgets import (
     ChoiceCard,
     Divider,
     IconLabel,
-    Pill,
     SectionHeader,
     label,
     set_role,
@@ -237,11 +235,11 @@ class RunButton(QPushButton):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setMinimumHeight(84)
+        self.setMinimumHeight(60)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         col = QVBoxLayout(self)
-        col.setContentsMargins(16, 12, 16, 12)
-        col.setSpacing(4)
+        col.setContentsMargins(16, 8, 16, 8)
+        col.setSpacing(2)
         top = QHBoxLayout()
         top.setSpacing(10)
         top.addStretch(1)
@@ -319,26 +317,16 @@ class OfflinePage(QWidget):
 
         self._build_inspector()
 
-        left = QVBoxLayout()
-        left.setSpacing(18)
-        left.addWidget(self._build_input_card())
-        left.addWidget(self._build_options_card())
-        left.addStretch(1)
-
-        columns = QHBoxLayout()
-        columns.setSpacing(18)
-        columns.addLayout(left, 3)
-        columns.addWidget(self._build_summary_card(), 2, Qt.AlignmentFlag.AlignTop)
-
         content = QWidget()
         content.setMaximumWidth(MAX_CONTENT_WIDTH)
         body = QVBoxLayout(content)
         body.setContentsMargins(0, 0, 0, 0)
         body.setSpacing(18)
-        body.addLayout(columns)
+        body.addWidget(self._build_input_card())
+        body.addWidget(self._build_options_card())
         body.addWidget(self._build_log_card(), 1)
 
-        for card in (self._input_card, self._options_card, self._summary_card):
+        for card in (self._input_card, self._options_card):
             card.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
         self.setMinimumHeight(0)
 
@@ -356,7 +344,7 @@ class OfflinePage(QWidget):
 
         self._set_mode(dataset=False)
         self._reset_options()
-        self._refresh_summary()
+        self._refresh_run()
 
         self._poll_timer = QTimer(self)
         self._poll_timer.timeout.connect(self._drain_log_queue)
@@ -455,15 +443,13 @@ class OfflinePage(QWidget):
             "Apply the causal NLMS adaptive regression filter to the raw EEG before the cognition step.\n"
             "For each channel, the other channels act as predictors to remove common-mode\n"
             "cross-channel contamination. The emotion (fEMG) features never use it.")
-        for row in (self._opt_skip_rotation, self._opt_nlms):
-            row.check.toggled.connect(self._refresh_summary)
         card.body.addWidget(self._opt_skip_rotation)
         card.body.addWidget(Divider())
         card.body.addWidget(self._opt_nlms)
         card.body.addWidget(Divider())
 
         self._emotion_model = QComboBox()
-        self._emotion_model.setFixedWidth(330)
+        self._emotion_model.setMinimumWidth(330)
         self._emotion_model.setCursor(Qt.CursorShape.PointingHandCursor)
         self._emotion_model.setToolTip(
             "Emotion classifier release used for this run. Filter settings\n"
@@ -474,62 +460,14 @@ class OfflinePage(QWidget):
             text = f"{release.name} {release.version}".strip()
             self._model_labels[key] = text
             self._emotion_model.addItem(text + (" (recommended)" if key == self._default_model else ""), key)
-        self._emotion_model.currentIndexChanged.connect(self._refresh_summary)
         model_row = QHBoxLayout()
         model_text = QVBoxLayout()
         model_text.setSpacing(2)
         model_text.addWidget(label("Emotion model", "strong"))
         model_text.addWidget(label("Choose the emotion recognition model to use.", "hint"))
         model_row.addLayout(model_text, 1)
-        model_row.addWidget(self._emotion_model, 0, Qt.AlignmentFlag.AlignVCenter)
+        model_row.addWidget(self._emotion_model, 1, Qt.AlignmentFlag.AlignVCenter)
         card.body.addLayout(model_row)
-        self._options_card = card
-        return card
-
-    def _build_summary_card(self) -> Card:
-        card = Card(spacing=14)
-        card.setMinimumWidth(360)
-        self._summary_card = card
-        card.body.addWidget(SectionHeader("Run summary", "Review your configuration before running.", icon="file-text"))
-        card.body.addWidget(Divider())
-
-        def section(icon_name: str, title: str) -> QHBoxLayout:
-            row = QHBoxLayout()
-            row.setSpacing(10)
-            row.addWidget(IconLabel(icon_name, 18, "muted"))
-            row.addWidget(label(title, "section"), 1)
-            return row
-
-        grid_input = QGridLayout()
-        grid_input.setHorizontalSpacing(12)
-        grid_input.setVerticalSpacing(10)
-        self._sum_mode = Pill("Single session", "value")
-        self._sum_path = label("Not selected", "placeholder", wrap=True)
-        self._sum_path.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        grid_input.addWidget(label("Mode"), 0, 0)
-        grid_input.addWidget(self._sum_mode, 0, 1, Qt.AlignmentFlag.AlignRight)
-        grid_input.addWidget(label("Selected"), 1, 0, Qt.AlignmentFlag.AlignTop)
-        grid_input.addWidget(self._sum_path, 1, 1)
-        grid_input.setColumnStretch(1, 1)
-        card.body.addLayout(section("folder", "Input"))
-        card.body.addLayout(grid_input)
-        card.body.addWidget(Divider())
-
-        grid_opts = QGridLayout()
-        grid_opts.setHorizontalSpacing(12)
-        grid_opts.setVerticalSpacing(10)
-        self._sum_rotation = Pill("", "off")
-        self._sum_nlms = Pill("", "on")
-        self._sum_model = Pill("", "value")
-        for i, (name, pill) in enumerate(
-            (("Skip video rotation", self._sum_rotation), ("NLMS decorrelation (EEG)", self._sum_nlms),
-             ("Emotion model", self._sum_model))
-        ):
-            grid_opts.addWidget(label(name), i, 0)
-            grid_opts.addWidget(pill, i, 1, Qt.AlignmentFlag.AlignRight)
-        grid_opts.setColumnStretch(0, 1)
-        card.body.addLayout(section("sliders", "Processing options"))
-        card.body.addLayout(grid_opts)
         card.body.addSpacing(6)
 
         self._run = RunButton()
@@ -538,6 +476,7 @@ class OfflinePage(QWidget):
         self._run_hint = label("", "hint", wrap=True)
         self._run_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         card.body.addWidget(self._run_hint)
+        self._options_card = card
         return card
 
     def _build_log_card(self) -> Card:
@@ -581,7 +520,6 @@ class OfflinePage(QWidget):
         self._path_label.setText(title)
         self._path_help.setText(helper)
         self._path.setPlaceholderText(placeholder)
-        self._sum_mode.setText("Dataset" if dataset else "Single session")
         self._on_path_changed(self._path.text())
 
     def _browse_clicked(self) -> None:
@@ -601,7 +539,7 @@ class OfflinePage(QWidget):
             self._inspecting = False
             self._inspect_timer.stop()
         self._refresh_status()
-        self._refresh_summary()
+        self._refresh_run()
 
     def _start_inspection(self) -> None:
         self._request_inspect.emit(self._inspect_request, self._path.text(), self._is_dataset_mode())
@@ -613,7 +551,7 @@ class OfflinePage(QWidget):
         self._input = result if isinstance(result, (SessionInfo, DatasetInfo)) else None
         self._input_error = error if isinstance(error, str) else None
         self._refresh_status()
-        self._refresh_summary()
+        self._refresh_run()
 
     def _refresh_status(self) -> None:
         self._status_spinner.stop()
@@ -638,7 +576,7 @@ class OfflinePage(QWidget):
             self._status.setText("")
         repolish(self._path)
 
-    # ── Options and summary ───────────────────────────────────────────────────
+    # ── Options and Run ───────────────────────────────────────────────────────
 
     def _reset_options(self) -> None:
         self._opt_skip_rotation.check.setChecked(False)
@@ -647,30 +585,21 @@ class OfflinePage(QWidget):
         if idx >= 0:
             self._emotion_model.setCurrentIndex(idx)
 
-    def _refresh_summary(self) -> None:
-        if self._input is not None:
-            self._sum_path.setText(self._input.summary())
-            self._sum_path.setToolTip(self._input.path)
-            set_role(self._sum_path, "strong")
-        else:
-            self._sum_path.setText("Not selected")
-            self._sum_path.setToolTip("")
-            set_role(self._sum_path, "placeholder")
-        skip = self._opt_skip_rotation.check.isChecked()
-        nlms = self._opt_nlms.check.isChecked()
-        self._sum_rotation.set_state("Enabled" if skip else "Disabled", "on" if skip else "off")
-        self._sum_nlms.set_state("Enabled" if nlms else "Disabled", "on" if nlms else "off")
-        key = self._emotion_model.currentData()
-        self._sum_model.setText(self._model_labels.get(key, "") if key else "")
+    def _refresh_run(self) -> None:
+        """Enable Run once the input is valid; otherwise say why under the button."""
         if not self._running:
             ready = self._input is not None
             self._run.setEnabled(ready)
             if ready:
-                self._run_hint.setText("")
+                self._set_run_hint("")
             elif self._inspecting:
-                self._run_hint.setText("Checking the selected folder…")
+                self._set_run_hint("Checking the selected folder…")
             else:
-                self._run_hint.setText("Select a valid session or dataset folder to enable Run.")
+                self._set_run_hint("Select a valid session or dataset folder to enable Run.")
+
+    def _set_run_hint(self, text: str) -> None:
+        self._run_hint.setText(text)
+        self._run_hint.setVisible(bool(text))
 
     def showEvent(self, event) -> None:  # type: ignore[no-untyped-def]
         super().showEvent(event)
@@ -692,13 +621,14 @@ class OfflinePage(QWidget):
 
     def _set_processing(self, running: bool) -> None:
         self._running = running
-        for widget in (self._input_card, self._options_card, self._clear):
+        # Not the whole options card: it holds the Run / Cancel button.
+        for widget in (self._input_card, self._opt_skip_rotation, self._opt_nlms, self._emotion_model, self._clear):
             widget.setEnabled(not running)
         self._run.set_mode(self._run_mode())
         if not running:
-            self._refresh_summary()
+            self._refresh_run()
         else:
-            self._run_hint.setText("")
+            self._set_run_hint("")
         self.processing_changed.emit(running)
 
     def _run_or_cancel(self) -> None:

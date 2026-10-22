@@ -9,8 +9,8 @@
   description and a Help link.
 - New visual design with refreshed dark and light themes: cards, step numbers, visible check boxes and radio buttons,
   outlined secondary buttons; orange is reserved for the Run pipeline action.
-- **Process** page (formerly Offline processing) redesigned: mode cards, a run summary mirroring the selected
-  options, Run pipeline as the main action, and the processing log below. The selected folder is checked in the
+- **Process** page (formerly Offline processing) redesigned: one column with mode cards, the processing options
+  ending with Run pipeline as the main action, and the processing log below. The selected folder is checked in the
   background without moving any file (session name, duration, recorded signals; for a dataset, the number of
   sessions and of incomplete ones). Run stays disabled until the folder is valid, and invalid folders are explained
   under the path field.
@@ -23,8 +23,9 @@
   be stopped; connecting stops the scan.
 - Plots follow the light / dark theme with readable axes. The real-time EEG is a stacked display in one ink colour
   with channel names on the left axis, time in seconds and a 100 µV scale bar; motion traces are X red, Y teal,
-  Z yellow with a legend; Playback emotions use a fixed, colour-blind-checked palette (Fear and Contempt shared a
-  colour before) and the legend text stays in the text colour.
+  Z yellow with a legend. Playback uses the product emotion palette, one fixed colour per emotion or metric (Fear
+  and Contempt shared a colour before), with darker variants of the pale colours in the light theme; series with
+  no data in the session are not shown, and the legend text stays in the text colour.
 
 ### Added
 

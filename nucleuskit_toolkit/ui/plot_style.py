@@ -6,7 +6,9 @@ the plot surface and for separation under colour-vision deficiency:
 
 - ``xyz``: X / Y / Z traces (motion). Red / teal / amber: red-amber is in the colour-blind "secondary encoding"
   band, so these plots always show a legend.
-- ``emotions``: the seven emotions in ``EMOTION_ORDER`` (fixed order, never cycled); Neutral is a neutral grey.
+- ``emotions``: one colour per name of ``EMOTION_ORDER`` (emotions and affective metrics, fixed order, never
+  cycled), so a series keeps its colour whatever else the file contains. Dark uses the product palette as given;
+  light darkens the pale ones (Happiness, Fear, Surprise, Attention, Contempt) to 3:1 on white, same hue.
 - ``pair``: two compared groups (blue / red).
 - ``ink``: a single colour for stacked signals identified by their row label (EEG channels).
 
@@ -25,7 +27,10 @@ from PySide6.QtGui import QColor
 
 from nucleuskit_toolkit.ui.theme import current_palette
 
-EMOTION_ORDER = ("Happiness", "Anger", "Surprise", "Contempt", "Disgust", "Fear", "Sadness")
+EMOTION_ORDER = (
+    "Neutral", "Happiness", "Anger", "Surprise", "Contempt", "Disgust", "Fear", "Sadness",
+    "Love", "Distress", "Attention", "Cognitive", "Engagement",
+)
 
 
 @dataclass(frozen=True)
@@ -37,14 +42,16 @@ class PlotColors:
     accent: str
     grid_alpha: float
     xyz: tuple[str, str, str]
-    emotions: tuple[str, ...]
-    neutral: str
+    emotions: tuple[str, ...]  # aligned with EMOTION_ORDER
     pair: tuple[str, str]
 
+    @property
+    def neutral(self) -> str:
+        return self.emotion("Neutral")
+
     def emotion(self, name: str) -> str:
-        if name in EMOTION_ORDER:
-            return self.emotions[EMOTION_ORDER.index(name)]
-        return self.neutral
+        """Colour of a named emotion or metric; unknown names get the Neutral grey."""
+        return self.emotions[EMOTION_ORDER.index(name if name in EMOTION_ORDER else "Neutral")]
 
 
 LIGHT = PlotColors(
@@ -55,8 +62,10 @@ LIGHT = PlotColors(
     accent="#4F85EE",
     grid_alpha=0.10,
     xyz=("#e34948", "#1baf7a", "#eda100"),
-    emotions=("#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6"),
-    neutral="#8A93A6",
+    #        Neutral    Happiness  Anger      Surprise   Contempt   Disgust    Fear       Sadness
+    emotions=("#7A8391", "#A99300", "#C85263", "#8A91B9", "#239ADE", "#6E8551", "#7D94B8", "#2F67B8",
+              # Love    Distress   Attention  Cognitive  Engagement
+              "#E35F8A", "#6B352A", "#D87A4D", "#AF68A4", "#A73A41"),
     pair=("#2a78d6", "#e34948"),
 )
 
@@ -68,8 +77,10 @@ DARK = PlotColors(
     accent="#4F85EE",
     grid_alpha=0.12,
     xyz=("#e5484d", "#199e70", "#c98500"),
-    emotions=("#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9"),
-    neutral="#8D97AB",
+    #        Neutral    Happiness  Anger      Surprise   Contempt   Disgust    Fear       Sadness
+    emotions=("#7A8391", "#D9C34A", "#C85263", "#B7BEE7", "#2A9FE3", "#6E8551", "#C7D4E9", "#2F67B8",
+              # Love    Distress   Attention  Cognitive  Engagement
+              "#E35F8A", "#6B352A", "#E68659", "#AF68A4", "#A73A41"),
     pair=("#3987e5", "#e66767"),
 )
 

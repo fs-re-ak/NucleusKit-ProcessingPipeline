@@ -80,11 +80,17 @@ def _brush_zone(selected: bool = False):  # type: ignore[no-untyped-def]
 
 
 def _series_color(name: str, index: int) -> str:
-    """Emotions keep their slot of the fixed emotion order; other metrics take the slots in column order."""
+    """Named emotions/metrics keep their colour; other metrics take the non-Neutral slots in column order."""
     c = plot_colors()
-    if name == "Neutral" or name in EMOTION_ORDER:
+    if name in EMOTION_ORDER:
         return c.emotion(name)
-    return c.emotions[index] if index < len(c.emotions) else c.neutral
+    return c.emotions[index + 1] if index + 1 < len(c.emotions) else c.neutral
+
+
+def _has_data(column: pd.Series) -> bool:
+    """True when the column holds at least one finite, non-zero value."""
+    values = pd.to_numeric(column, errors="coerce").to_numpy(dtype=np.float64)
+    return bool(np.any(np.isfinite(values) & (values != 0.0)))
 
 
 def _emotion_checkbox_stylesheet(hex_color: str) -> str:
@@ -757,6 +763,10 @@ class MetricsPlotWidget(QWidget):
             plot_cols = [c for c in df.columns if c in COGNITION_COLUMNS]
         else:
             plot_cols = [c for c in df.columns if c != "Timestamp"]
+        # Only the series present in this session: drop columns with no non-zero value.
+        plot_cols = [c for c in plot_cols if _has_data(df[c])]
+        if not plot_cols:
+            return f"{filename} has no data to plot."
 
         set_label(self._plot.getPlotItem(), "left", y_label)
 

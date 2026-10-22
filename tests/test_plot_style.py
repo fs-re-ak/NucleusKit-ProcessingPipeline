@@ -18,13 +18,37 @@ def app():
     return QApplication.instance() or QApplication([])
 
 
+def _contrast(a: str, b: str) -> float:
+    def lum(hex_color: str) -> float:
+        def lin(c: float) -> float:
+            return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+        q = QColor(hex_color)
+        return 0.2126 * lin(q.redF()) + 0.7152 * lin(q.greenF()) + 0.0722 * lin(q.blueF())
+    hi, lo = sorted((lum(a), lum(b)), reverse=True)
+    return (hi + 0.05) / (lo + 0.05)
+
+
 def test_palettes_are_complete_and_distinct() -> None:
+    names = {"Neutral", "Happiness", "Anger", "Surprise", "Contempt", "Disgust", "Fear", "Sadness",
+             "Love", "Distress", "Attention", "Cognitive", "Engagement"}
+    assert set(plot_style.EMOTION_ORDER) == names
     for colors in (plot_style.LIGHT, plot_style.DARK):
         assert len(colors.emotions) == len(plot_style.EMOTION_ORDER) == len(set(colors.emotions))
         assert len(set(colors.xyz)) == 3 and len(set(colors.pair)) == 2
-        assert colors.neutral not in colors.emotions
-        assert colors.emotion("Neutral") == colors.neutral
-        assert colors.emotion("Fear") != colors.emotion("Contempt")
+        assert colors.emotion("Unknown") == colors.neutral == colors.emotion("Neutral")
+
+
+def test_dark_emotions_are_the_product_palette() -> None:
+    dark = plot_style.DARK
+    assert dark.emotion("Happiness") == "#D9C34A"
+    assert dark.emotion("Fear") == "#C7D4E9"
+    assert dark.emotion("Engagement") == "#A73A41"
+
+
+def test_light_emotions_reach_3_to_1_on_white() -> None:
+    light = plot_style.LIGHT
+    for name in plot_style.EMOTION_ORDER:
+        assert _contrast(light.emotion(name), light.background) >= 3.0, name
 
 
 def test_plot_colors_follow_the_theme(app) -> None:
