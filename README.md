@@ -245,11 +245,38 @@ Replace the packaged logo anytime with your own PNG at [`nucleuskit_toolkit/ui/r
 
 ### Desktop shortcut (Windows)
 
-1. Right-click the desktop, **New → Shortcut**.
-2. Location: the environment's `pythonw.exe` followed by `-m nucleuskit_toolkit`, for example
-   `C:\Users\<you>\nucleuskit\Scripts\pythonw.exe -m nucleuskit_toolkit` (`pythonw` opens no console window).
-3. Name it **Nucleus-Kit**, then in **Properties → Start in**, choose the folder that holds your
-   `nucleuskit_toolkit_config.json`, if you use one.
+A desktop shortcut opens Nucleus-Kit like any other program. You do not type a Python command to start it.
+
+The [PyPI install](#from-pypi) saves the program in your user folder. Find it in File Explorer:
+
+1. Open **File Explorer**.
+2. Click the address bar (the long box at the top that shows which folder is open).
+3. Type `%USERPROFILE%\nucleuskit\Scripts` and press Enter.
+
+`%USERPROFILE%` is your personal folder, usually `C:\Users\` plus your Windows name, the same place that holds
+Documents and Downloads. The `Scripts` folder should contain a file named `pythonw.exe`.
+
+If File Explorer says that folder does not exist, the install was saved somewhere else. Use the search box in File
+Explorer and search for `pythonw.exe`. Pick the copy that is inside a folder named `Scripts`. After a pipx install
+that folder is `%USERPROFILE%\pipx\venvs\nucleuskit-toolkit\Scripts`. After a [source install](#from-source-development)
+it is the `.venv\Scripts` folder inside the cloned repository.
+
+Create the shortcut from that file:
+
+1. In the `Scripts` folder, hold **Shift**, right-click `pythonw.exe`, and choose **Copy as path**. The copied text
+   already has quotes around it, for example `"C:\Users\Alex\nucleuskit\Scripts\pythonw.exe"`.
+2. Right-click the desktop, then **New → Shortcut**.
+3. In **Type the location of the item**, paste that path, type a space, then type `-m nucleuskit_toolkit`.
+   The full line looks like this, with your own path in place of the example:
+
+   `"C:\Users\Alex\nucleuskit\Scripts\pythonw.exe" -m nucleuskit_toolkit`
+
+   `pythonw.exe` opens the application window and does not leave a black command window on the screen.
+4. Click **Next**, name the shortcut **Nucleus-Kit**, and click **Finish**.
+
+**Start in** is only for a `nucleuskit_toolkit_config.json` file (an FFmpeg folder or POV settings). Right-click the
+shortcut, open **Properties**, and set **Start in** to the folder that contains that file. With no config file,
+leave **Start in** empty.
 
 ### Troubleshooting
 
