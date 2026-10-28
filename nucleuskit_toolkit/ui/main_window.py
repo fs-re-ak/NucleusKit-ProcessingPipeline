@@ -84,8 +84,8 @@ PAGES: dict[str, PageSpec] = {
             "graphical-interface", "nucleuskit_toolkit.ui.pages.playback_page", "PlaybackPage",
         ),
         PageSpec(
-            "tools", "Tools", "wrench", "Tools",
-            "Repair and adjust the signals of processed sessions.",
+            "tools", "Tools", "wrench", "Tools (experimental)",
+            "Experimental only. Repair and adjust the signals of processed sessions.",
             "tools-submenu", "nucleuskit_toolkit.ui.pages.tools_menu_page", "ToolsMenuPage",
         ),
         PageSpec(

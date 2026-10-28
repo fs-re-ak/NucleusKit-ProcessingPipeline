@@ -8,11 +8,12 @@ Since version 2.0.0 the processing itself (heart dynamics, arousal, cognition, e
 
 - [Hardware mapping](#hardware-mapping)
 - [Graphical interface](#graphical-interface)
-  - [Tools submenu](#tools-submenu)
+  - [Tools submenu (experimental)](#tools-submenu)
 - [Requirements](#requirements)
 - [Install](#install)
   - [From PyPI](#from-pypi)
   - [From source (development)](#from-source-development)
+  - [FFmpeg](#ffmpeg)
   - [Upgrade and uninstall](#upgrade-and-uninstall)
 - [Run](#run)
   - [Desktop shortcut (Windows)](#desktop-shortcut-windows)
@@ -22,7 +23,6 @@ Since version 2.0.0 the processing itself (heart dynamics, arousal, cognition, e
   - [rawData/ — typical inputs](#rawdata--typical-inputs)
   - [features/ — notable outputs](#features--notable-outputs)
   - [results/ — primary toolkit tables](#results--primary-pipeline-tables)
-- [FFmpeg](#ffmpeg)
 - [Optional POV movie conversion](#optional-pov-movie-conversion)
 - [Technical documentation](#technical-documentation)
 - [Trust and bundled models](#trust-and-bundled-models)
@@ -48,7 +48,7 @@ are also loaded in the background right after start-up.
 | **Process** | Run the pipeline on one session folder or on every session of a dataset folder. The selected folder is checked as you type (read only): session name, duration and recorded signals, or for a dataset the number of sessions and how many are incomplete. Run is enabled once the folder is valid; while running it becomes **Cancel**, which finishes the step in progress and skips the rest. In a dataset, a failing session does not stop the others. |
 | **Real-time viewer** | Connect to a Hermes headset over BLE (devices appear in the list as soon as the scan sees them) and an optional Shimmer over serial: stream, plot EEG / motion / Shimmer signals, and record into a session-style folder. |
 | **Playback** | Review a processed session: optional `rawData/video.mp4` plus time-aligned plots from `results/*.csv`, with editable event annotations when available. |
-| **Tools** | Maintenance utilities for processed sessions (see below). |
+| **Tools** | Experimental only. Utilities for processed sessions (see below). |
 | **MQTT Controller** | Connect to a broker (e.g. Vizia Mobile), discover devices from status traffic, and send recording-related MQTT commands. |
 | **Settings** | Theme (light, dark, or system), persisted under **REAK / NucleusKitToolkit** via `QSettings`. |
 | **Documentation** | Opens the technical documentation in the browser. |
@@ -57,7 +57,11 @@ are also loaded in the background right after start-up.
 Leaving a page is refused while it is busy (a run in progress, a device connected or connecting, unsaved playback
 annotations are offered for saving first).
 
-### Tools submenu
+<a id="tools-submenu"></a>
+
+### Tools submenu (experimental)
+
+Experimental only. These utilities sit outside the supported processing path.
 
 | Item | Purpose |
 |------|---------|
@@ -73,8 +77,8 @@ annotations are offered for saving first).
 - **Python 3.10, 3.11 or 3.12** (3.12 recommended). Check with `python --version` (`py --version` on Windows).
   On Windows, install it from [python.org](https://www.python.org/downloads/windows/) and tick **Add python.exe to
   PATH** in the installer.
-- **FFmpeg** for video: rotating `rawData/video.mp4`, preparing it for playback, the Recording Merger, and
-  optional POV conversion. Biosignal processing runs without it. Install steps: [FFmpeg](#ffmpeg).
+- **FFmpeg** (a system program, not a pip package) for session video, the Recording Merger and optional POV
+  conversion. Biosignal processing runs without it. Install it with the other setup steps: [FFmpeg](#ffmpeg).
 - Dependencies are declared in [`pyproject.toml`](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/blob/main/pyproject.toml);
   [`requirements.txt`](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/blob/main/requirements.txt) pins the
   exact versions that were tested, GUI extras included.
@@ -149,6 +153,95 @@ python3 -m venv .venv
 The re-ak-core clone satisfies Nucleus-Kit's `re-ak-core>=1.0.1,<1.1` requirement, so pip keeps it instead of
 downloading the published one. To reproduce the tested environment exactly, install `requirements.txt` instead of the
 `[dev,gui]` extras (it needs re-ak-core on PyPI).
+
+### FFmpeg
+
+FFmpeg is a system program. pip does not install it, and it does not go inside the virtual environment. Install it
+on the machine after the Python steps above.
+
+Nucleus-Kit calls it only for video. If a video step cannot find it, that step is skipped and the log says so; heart,
+arousal, cognition, emotion and GPS processing still run. The Recording Merger does not skip: it stops until both
+`ffmpeg` and `ffprobe` are on PATH.
+
+| Use | What it does | Where Nucleus-Kit looks |
+|-----|----------------|-------------------------|
+| **Session video** | While processing, rotates `rawData/video.mp4` 180° once (`hflip,vflip`, re-encoded with libx264). | `ffmpeg_dir` if you set it, otherwise `ffmpeg` on PATH |
+| **Playback** | When you open a session, remuxes `rawData/video.mp4` so the file header is at the start and seeking works on long recordings. | Same as session video |
+| **Recording Merger** | Joins up to five videos and inserts black-screen gaps (libx264 and AAC). | PATH only. `ffmpeg_dir` is not read. Both `ffmpeg` and `ffprobe` must be on PATH. |
+| **POV conversion** | Optional. Re-muxes one camera file from MKV to MP4 without re-encoding. | `ffmpeg_dir` is required. PATH alone is not enough. See [Optional POV movie conversion](#optional-pov-movie-conversion). |
+
+Use a normal release build. The rotation and the Recording Merger re-encode with **libx264** (and AAC for merged
+audio). A build compiled without those encoders will fail those steps.
+
+After installing, open a **new** terminal and check:
+
+```powershell
+ffmpeg -version
+ffprobe -version
+```
+
+Both commands should print a version line. Restart Nucleus-Kit as well: a copy that was already open still has the
+old PATH.
+
+#### Windows
+
+**winget** (built into Windows 10 and 11):
+
+```powershell
+winget install --id Gyan.FFmpeg.Essentials -e --source winget
+```
+
+Close PowerShell, open it again, and run the two checks above. This is the [gyan.dev](https://www.gyan.dev/ffmpeg/builds/)
+essentials build (libx264 and AAC). winget registers `ffmpeg` and `ffprobe` for you. If a new terminal still cannot
+find them, add the `bin` folder that contains `ffmpeg.exe` to PATH, as in the manual steps.
+
+**Manual install**, if winget is unavailable or did not put the programs on PATH:
+
+1. Download **ffmpeg-release-essentials.zip** from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) (also linked from
+   [ffmpeg.org](https://ffmpeg.org/download.html#build-windows)). That build includes `ffmpeg.exe`, `ffprobe.exe`,
+   libx264 and AAC.
+2. Extract the zip. Inside a versioned folder there is a `bin` folder. That `bin` folder is the one that contains
+   `ffmpeg.exe` and `ffprobe.exe`.
+3. Add that `bin` folder to your user PATH: **Settings → System → About → Advanced system settings →
+   Environment Variables**. Under **User variables**, select **Path**, **Edit**, **New**, and paste the `bin` folder.
+   Paste the folder that contains `ffmpeg.exe`, not the folder above it and not the path of `ffmpeg.exe` itself.
+4. Open a new PowerShell and run `ffmpeg -version` and `ffprobe -version`.
+
+If you cannot change PATH, session video and playback can still use a configured folder. The Recording Merger
+cannot; it only searches PATH.
+
+#### macOS
+
+```bash
+brew install ffmpeg
+```
+
+Homebrew puts `ffmpeg` and `ffprobe` on PATH, with libx264.
+
+#### Linux
+
+Install the `ffmpeg` package from your distribution so `ffmpeg` and `ffprobe` are on PATH. On Debian and Ubuntu:
+
+```bash
+sudo apt update
+sudo apt install ffmpeg
+```
+
+#### Using a folder when FFmpeg is not on PATH
+
+Session video rotation and playback also accept a directory. `ffmpeg_dir` is the folder that **contains** the
+program (`ffmpeg.exe` on Windows, `ffmpeg` on macOS and Linux). It is not the path of the program file.
+
+Put this in `nucleuskit_toolkit_config.json` in the directory you start Nucleus-Kit from. For a desktop shortcut,
+that is the **Start in** folder (see [Desktop shortcut (Windows)](#desktop-shortcut-windows)):
+
+```json
+{
+  "ffmpeg_dir": "C:/ffmpeg/bin"
+}
+```
+
+The environment variable `HERMES_FFMPEG_DIR` is the same folder and overrides the JSON file.
 
 ### Upgrade and uninstall
 
@@ -261,94 +354,6 @@ Written by the default offline pipeline (when the corresponding raw inputs exist
 - **`gpsDf.csv`** (GPS)
 
 Playback mode looks for metric CSVs here and, for synchronized video, uses **`rawData/video.mp4`**. Event annotations are **loaded** from **`features/events/playback_annotations.json`**. When you edit annotations in Playback and save, the app writes that file and **mirrors** the same JSON to **`results/playback_annotations.json`** for convenience.
-
-## FFmpeg
-
-FFmpeg is a separate program. pip does not install it.
-
-Nucleus-Kit calls it only for video. If a video step cannot find it, that step is skipped and the log says so; heart,
-arousal, cognition, emotion and GPS processing still run. The Recording Merger does not skip: it stops until both
-`ffmpeg` and `ffprobe` are on PATH.
-
-| Use | What it does | Where Nucleus-Kit looks |
-|-----|----------------|-------------------------|
-| **Session video** | While processing, rotates `rawData/video.mp4` 180° once (`hflip,vflip`, re-encoded with libx264). | `ffmpeg_dir` if you set it, otherwise `ffmpeg` on PATH |
-| **Playback** | When you open a session, remuxes `rawData/video.mp4` so the file header is at the start and seeking works on long recordings. | Same as session video |
-| **Recording Merger** | Joins up to five videos and inserts black-screen gaps (libx264 and AAC). | PATH only. `ffmpeg_dir` is not read. Both `ffmpeg` and `ffprobe` must be on PATH. |
-| **POV conversion** | Optional. Re-muxes one camera file from MKV to MP4 without re-encoding. | `ffmpeg_dir` is required. PATH alone is not enough. See [Optional POV movie conversion](#optional-pov-movie-conversion). |
-
-Use a normal release build. The rotation and the Recording Merger re-encode with **libx264** (and AAC for merged
-audio). A build compiled without those encoders will fail those steps.
-
-After installing, open a **new** terminal and check:
-
-```powershell
-ffmpeg -version
-ffprobe -version
-```
-
-Both commands should print a version line. Restart Nucleus-Kit as well: a copy that was already open still has the
-old PATH.
-
-### Windows
-
-**winget** (built into Windows 10 and 11):
-
-```powershell
-winget install --id Gyan.FFmpeg.Essentials -e --source winget
-```
-
-Close PowerShell, open it again, and run the two checks above. This is the [gyan.dev](https://www.gyan.dev/ffmpeg/builds/)
-essentials build (libx264 and AAC). winget registers `ffmpeg` and `ffprobe` for you. If a new terminal still cannot
-find them, add the `bin` folder that contains `ffmpeg.exe` to PATH, as in the manual steps.
-
-**Manual install**, if winget is unavailable or did not put the programs on PATH:
-
-1. Download **ffmpeg-release-essentials.zip** from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) (also linked from
-   [ffmpeg.org](https://ffmpeg.org/download.html#build-windows)). That build includes `ffmpeg.exe`, `ffprobe.exe`,
-   libx264 and AAC.
-2. Extract the zip. Inside a versioned folder there is a `bin` folder. That `bin` folder is the one that contains
-   `ffmpeg.exe` and `ffprobe.exe`.
-3. Add that `bin` folder to your user PATH: **Settings → System → About → Advanced system settings →
-   Environment Variables**. Under **User variables**, select **Path**, **Edit**, **New**, and paste the `bin` folder.
-   Paste the folder that contains `ffmpeg.exe`, not the folder above it and not the path of `ffmpeg.exe` itself.
-4. Open a new PowerShell and run `ffmpeg -version` and `ffprobe -version`.
-
-If you cannot change PATH, session video and playback can still use a configured folder. The Recording Merger
-cannot; it only searches PATH.
-
-### macOS
-
-```bash
-brew install ffmpeg
-```
-
-Homebrew puts `ffmpeg` and `ffprobe` on PATH, with libx264.
-
-### Linux
-
-Install the `ffmpeg` package from your distribution so `ffmpeg` and `ffprobe` are on PATH. On Debian and Ubuntu:
-
-```bash
-sudo apt update
-sudo apt install ffmpeg
-```
-
-### Using a folder when FFmpeg is not on PATH
-
-Session video rotation and playback also accept a directory. `ffmpeg_dir` is the folder that **contains** the
-program (`ffmpeg.exe` on Windows, `ffmpeg` on macOS and Linux). It is not the path of the program file.
-
-Put this in `nucleuskit_toolkit_config.json` in the directory you start Nucleus-Kit from. For a desktop shortcut,
-that is the **Start in** folder (see [Desktop shortcut (Windows)](#desktop-shortcut-windows)):
-
-```json
-{
-  "ffmpeg_dir": "C:/ffmpeg/bin"
-}
-```
-
-The environment variable `HERMES_FFMPEG_DIR` is the same folder and overrides the JSON file.
 
 ## Optional POV movie conversion
 
