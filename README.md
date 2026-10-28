@@ -6,9 +6,6 @@ Since version 2.0.0 the processing itself (heart dynamics, arousal, cognition, e
 
 ## Table of contents
 
-- [Hardware mapping](#hardware-mapping)
-- [Graphical interface](#graphical-interface)
-  - [Tools submenu (experimental)](#tools-submenu)
 - [Requirements](#requirements)
 - [Install](#install)
   - [From PyPI](#from-pypi)
@@ -18,6 +15,9 @@ Since version 2.0.0 the processing itself (heart dynamics, arousal, cognition, e
 - [Run](#run)
   - [Desktop shortcut (Windows)](#desktop-shortcut-windows)
   - [Troubleshooting](#troubleshooting)
+- [Hardware mapping](#hardware-mapping)
+- [Graphical interface](#graphical-interface)
+  - [Tools submenu (experimental)](#tools-submenu)
 - [Session layout](#session-layout)
   - [Top-level folders](#top-level-folders)
   - [rawData/ — typical inputs](#rawdata--typical-inputs)
@@ -28,49 +28,6 @@ Since version 2.0.0 the processing itself (heart dynamics, arousal, cognition, e
 - [Trust and bundled models](#trust-and-bundled-models)
 - [Tests](#tests)
 - [License](#license)
-
-## Hardware mapping
-
-| Device | Signals |
-|--------|---------|
-| **Hermes headset** | EEG and EMG (including features used by the emotion model) |
-| **Shimmer wristband** | PPG and EDA (GSR processing in code maps to the Shimmer EDA channel) |
-
-## Graphical interface
-
-After `python -m nucleuskit_toolkit` (or `nucleuskit-toolkit`), the window shows a sidebar on the left and the selected
-page on the right. Every page has a title, a one-line description and a **Help** link to this documentation. A page
-opened for the first time shows a loading screen while its libraries load (a few seconds on the first launch); they
-are also loaded in the background right after start-up.
-
-| Sidebar item | Purpose |
-|------|---------|
-| **Process** | Run the pipeline on one session folder or on every session of a dataset folder. The selected folder is checked as you type (read only): session name, duration and recorded signals, or for a dataset the number of sessions and how many are incomplete. Run is enabled once the folder is valid; while running it becomes **Cancel**, which finishes the step in progress and skips the rest. In a dataset, a failing session does not stop the others. |
-| **Real-time viewer** | Connect to a Hermes headset over BLE (devices appear in the list as soon as the scan sees them) and an optional Shimmer over serial: stream, plot EEG / motion / Shimmer signals, and record into a session-style folder. |
-| **Playback** | Review a processed session: optional `rawData/video.mp4` plus time-aligned plots from `results/*.csv`, with editable event annotations when available. |
-| **Tools** | Experimental only. Utilities for processed sessions (see below). |
-| **MQTT Controller** | Connect to a broker (e.g. Vizia Mobile), discover devices from status traffic, and send recording-related MQTT commands. |
-| **Settings** | Theme (light, dark, or system), persisted under **REAK / NucleusKitToolkit** via `QSettings`. |
-| **Documentation** | Opens the technical documentation in the browser. |
-| **About** | Nucleus-Kit and re-ak-core versions, available emotion models, license and links. |
-
-Leaving a page is refused while it is busy (a run in progress, a device connected or connecting, unsaved playback
-annotations are offered for saving first).
-
-<a id="tools-submenu"></a>
-
-### Tools submenu (experimental)
-
-Experimental only. These utilities sit outside the supported processing path.
-
-| Item | Purpose |
-|------|---------|
-| **Channel Fixer** | Repair a single bad RMS channel in an already-processed session using the bundled channel-fix model. |
-| **Channel gain adjustment** | Adjust per-channel RMS gain and zero offset against a reference distribution; updates working emotion RMS features. |
-| **Revert to original** | Restore working RMS features from the frozen baseline under `features/emotions/original/`. |
-| **PPG Fixer** | Re-run PPG artifact rejection and HRV computation on an already-processed session (useful when tuning rejection thresholds without reprocessing the full pipeline). |
-| **EEG Regression Denoising** | Remove shared muscle noise from the EEG by regression on the EMG reference channels, then recompute the cognition outputs. |
-| **Recording Merger** | Join up to 5 recordings into one session, with empty CSV rows and black video for the gaps. Needs `ffmpeg` and `ffprobe` on PATH ([FFmpeg](#ffmpeg)). |
 
 ## Requirements
 
@@ -304,6 +261,49 @@ Replace the packaged logo anytime with your own PNG at [`nucleuskit_toolkit/ui/r
 | `ModuleNotFoundError: No module named 'PySide6'` | Install the `gui` extra: `pip install "nucleuskit-toolkit[gui]"` |
 | `python` is not recognized (Windows) | Use `py -3.12` instead of `python`, or reinstall Python with **Add python.exe to PATH** |
 | Log says ffmpeg was not found, or the Recording Merger asks for `ffmpeg` / `ffprobe` | Install FFmpeg, then restart the terminal and Nucleus-Kit ([FFmpeg](#ffmpeg)) |
+
+## Hardware mapping
+
+| Device | Signals |
+|--------|---------|
+| **Hermes headset** | EEG and EMG (including features used by the emotion model) |
+| **Shimmer wristband** | PPG and EDA (GSR processing in code maps to the Shimmer EDA channel) |
+
+## Graphical interface
+
+After `python -m nucleuskit_toolkit` (or `nucleuskit-toolkit`), the window shows a sidebar on the left and the selected
+page on the right. Every page has a title, a one-line description and a **Help** link to this documentation. A page
+opened for the first time shows a loading screen while its libraries load (a few seconds on the first launch); they
+are also loaded in the background right after start-up.
+
+| Sidebar item | Purpose |
+|------|---------|
+| **Process** | Run the pipeline on one session folder or on every session of a dataset folder. The selected folder is checked as you type (read only): session name, duration and recorded signals, or for a dataset the number of sessions and how many are incomplete. Run is enabled once the folder is valid; while running it becomes **Cancel**, which finishes the step in progress and skips the rest. In a dataset, a failing session does not stop the others. |
+| **Real-time viewer** | Connect to a Hermes headset over BLE (devices appear in the list as soon as the scan sees them) and an optional Shimmer over serial: stream, plot EEG / motion / Shimmer signals, and record into a session-style folder. |
+| **Playback** | Review a processed session: optional `rawData/video.mp4` plus time-aligned plots from `results/*.csv`, with editable event annotations when available. |
+| **Tools** | Experimental only. Utilities for processed sessions (see below). |
+| **MQTT Controller** | Connect to a broker (e.g. Vizia Mobile), discover devices from status traffic, and send recording-related MQTT commands. |
+| **Settings** | Theme (light, dark, or system), persisted under **REAK / NucleusKitToolkit** via `QSettings`. |
+| **Documentation** | Opens the technical documentation in the browser. |
+| **About** | Nucleus-Kit and re-ak-core versions, available emotion models, license and links. |
+
+Leaving a page is refused while it is busy (a run in progress, a device connected or connecting, unsaved playback
+annotations are offered for saving first).
+
+<a id="tools-submenu"></a>
+
+### Tools submenu (experimental)
+
+Experimental only. These utilities sit outside the supported processing path.
+
+| Item | Purpose |
+|------|---------|
+| **Channel Fixer** | Repair a single bad RMS channel in an already-processed session using the bundled channel-fix model. |
+| **Channel gain adjustment** | Adjust per-channel RMS gain and zero offset against a reference distribution; updates working emotion RMS features. |
+| **Revert to original** | Restore working RMS features from the frozen baseline under `features/emotions/original/`. |
+| **PPG Fixer** | Re-run PPG artifact rejection and HRV computation on an already-processed session (useful when tuning rejection thresholds without reprocessing the full pipeline). |
+| **EEG Regression Denoising** | Remove shared muscle noise from the EEG by regression on the EMG reference channels, then recompute the cognition outputs. |
+| **Recording Merger** | Join up to 5 recordings into one session, with empty CSV rows and black video for the gaps. Needs `ffmpeg` and `ffprobe` on PATH ([FFmpeg](#ffmpeg)). |
 
 ## Session layout
 
