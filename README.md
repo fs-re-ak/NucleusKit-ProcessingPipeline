@@ -22,7 +22,8 @@ Since version 2.0.0 the processing itself (heart dynamics, arousal, cognition, e
   - [rawData/ — typical inputs](#rawdata--typical-inputs)
   - [features/ — notable outputs](#features--notable-outputs)
   - [results/ — primary toolkit tables](#results--primary-pipeline-tables)
-- [Optional POV / ffmpeg configuration](#optional-pov--ffmpeg-configuration)
+- [FFmpeg](#ffmpeg)
+- [Optional POV movie conversion](#optional-pov-movie-conversion)
 - [Technical documentation](#technical-documentation)
 - [Trust and bundled models](#trust-and-bundled-models)
 - [Tests](#tests)
@@ -65,15 +66,15 @@ annotations are offered for saving first).
 | **Revert to original** | Restore working RMS features from the frozen baseline under `features/emotions/original/`. |
 | **PPG Fixer** | Re-run PPG artifact rejection and HRV computation on an already-processed session (useful when tuning rejection thresholds without reprocessing the full pipeline). |
 | **EEG Regression Denoising** | Remove shared muscle noise from the EEG by regression on the EMG reference channels, then recompute the cognition outputs. |
-| **Recording Merger** | Join up to 5 recordings into one session, with empty CSV rows and black video for the gaps. |
+| **Recording Merger** | Join up to 5 recordings into one session, with empty CSV rows and black video for the gaps. Needs `ffmpeg` and `ffprobe` on PATH ([FFmpeg](#ffmpeg)). |
 
 ## Requirements
 
 - **Python 3.10, 3.11 or 3.12** (3.12 recommended). Check with `python --version` (`py --version` on Windows).
   On Windows, install it from [python.org](https://www.python.org/downloads/windows/) and tick **Add python.exe to
   PATH** in the installer.
-- **ffmpeg** (optional): only for POV movie conversion and session video rotation. Point Nucleus-Kit to it with
-  `ffmpeg_dir` (see [Optional POV / ffmpeg configuration](#optional-pov--ffmpeg-configuration)).
+- **FFmpeg** for video: rotating `rawData/video.mp4`, preparing it for playback, the Recording Merger, and
+  optional POV conversion. Biosignal processing runs without it. Install steps: [FFmpeg](#ffmpeg).
 - Dependencies are declared in [`pyproject.toml`](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/blob/main/pyproject.toml);
   [`requirements.txt`](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/blob/main/requirements.txt) pins the
   exact versions that were tested, GUI extras included.
@@ -184,7 +185,7 @@ Options:
 | Option | Effect |
 |---|---|
 | `--session DIR` | Process this session folder and exit (no GUI) |
-| `--config JSON` | Optional POV / ffmpeg settings, merged after the config files of the current directory |
+| `--config JSON` | Extra POV / FFmpeg settings. Applied after JSON files in the current directory and before environment variables ([Optional POV movie conversion](#optional-pov-movie-conversion)) |
 | `--emotion-model NAME` | Emotion model release (default `classical-emotion-2.6.0`; `nucleuskit-toolkit --help` lists them) |
 
 Outputs are written inside the session folder (see [Session layout](#session-layout)). Existing outputs are reused:
@@ -209,6 +210,7 @@ Replace the packaged logo anytime with your own PNG at [`nucleuskit_toolkit/ui/r
 | pip reports a conflict on `scikit-learn` | Another package needs a newer scikit-learn: install Nucleus-Kit in its own environment |
 | `ModuleNotFoundError: No module named 'PySide6'` | Install the `gui` extra: `pip install "nucleuskit-toolkit[gui]"` |
 | `python` is not recognized (Windows) | Use `py -3.12` instead of `python`, or reinstall Python with **Add python.exe to PATH** |
+| Log says ffmpeg was not found, or the Recording Merger asks for `ffmpeg` / `ffprobe` | Install FFmpeg, then restart the terminal and Nucleus-Kit ([FFmpeg](#ffmpeg)) |
 
 ## Session layout
 
@@ -260,19 +262,129 @@ Written by the default offline pipeline (when the corresponding raw inputs exist
 
 Playback mode looks for metric CSVs here and, for synchronized video, uses **`rawData/video.mp4`**. Event annotations are **loaded** from **`features/events/playback_annotations.json`**. When you edit annotations in Playback and save, the app writes that file and **mirrors** the same JSON to **`results/playback_annotations.json`** for convenience.
 
-## Optional POV / ffmpeg configuration
+## FFmpeg
 
-POV movie conversion uses optional settings from, in order:
+FFmpeg is a separate program. pip does not install it.
 
-1. `hermes_standalone_config.json` in the **current working directory** (legacy name, still supported)
-2. `nucleuskit_pipeline_config.json` in the **current working directory** (legacy name, still supported)
-3. `nucleuskit_toolkit_config.json` in the **current working directory** (overrides legacy keys if both exist)
-4. An extra JSON path passed with `--config` (CLI only)
-5. Environment variables: `HERMES_POV_DATA_ROOT`, `HERMES_FFMPEG_DIR`, `HERMES_POV_SCREEN_ID`
+Nucleus-Kit calls it only for video. If a video step cannot find it, that step is skipped and the log says so; heart,
+arousal, cognition, emotion and GPS processing still run. The Recording Merger does not skip: it stops until both
+`ffmpeg` and `ffprobe` are on PATH.
 
-A run from the **Process** page uses the same merge rules from the **process working directory** and environment; it does not prompt for a config file path.
+| Use | What it does | Where Nucleus-Kit looks |
+|-----|----------------|-------------------------|
+| **Session video** | While processing, rotates `rawData/video.mp4` 180° once (`hflip,vflip`, re-encoded with libx264). | `ffmpeg_dir` if you set it, otherwise `ffmpeg` on PATH |
+| **Playback** | When you open a session, remuxes `rawData/video.mp4` so the file header is at the start and seeking works on long recordings. | Same as session video |
+| **Recording Merger** | Joins up to five videos and inserts black-screen gaps (libx264 and AAC). | PATH only. `ffmpeg_dir` is not read. Both `ffmpeg` and `ffprobe` must be on PATH. |
+| **POV conversion** | Optional. Re-muxes one camera file from MKV to MP4 without re-encoding. | `ffmpeg_dir` is required. PATH alone is not enough. See [Optional POV movie conversion](#optional-pov-movie-conversion). |
 
-JSON keys: `pov_data_root`, `ffmpeg_dir`, `screen_id`.
+Use a normal release build. The rotation and the Recording Merger re-encode with **libx264** (and AAC for merged
+audio). A build compiled without those encoders will fail those steps.
+
+After installing, open a **new** terminal and check:
+
+```powershell
+ffmpeg -version
+ffprobe -version
+```
+
+Both commands should print a version line. Restart Nucleus-Kit as well: a copy that was already open still has the
+old PATH.
+
+### Windows
+
+**winget** (built into Windows 10 and 11):
+
+```powershell
+winget install --id Gyan.FFmpeg.Essentials -e --source winget
+```
+
+Close PowerShell, open it again, and run the two checks above. This is the [gyan.dev](https://www.gyan.dev/ffmpeg/builds/)
+essentials build (libx264 and AAC). winget registers `ffmpeg` and `ffprobe` for you. If a new terminal still cannot
+find them, add the `bin` folder that contains `ffmpeg.exe` to PATH, as in the manual steps.
+
+**Manual install**, if winget is unavailable or did not put the programs on PATH:
+
+1. Download **ffmpeg-release-essentials.zip** from [gyan.dev](https://www.gyan.dev/ffmpeg/builds/) (also linked from
+   [ffmpeg.org](https://ffmpeg.org/download.html#build-windows)). That build includes `ffmpeg.exe`, `ffprobe.exe`,
+   libx264 and AAC.
+2. Extract the zip. Inside a versioned folder there is a `bin` folder. That `bin` folder is the one that contains
+   `ffmpeg.exe` and `ffprobe.exe`.
+3. Add that `bin` folder to your user PATH: **Settings → System → About → Advanced system settings →
+   Environment Variables**. Under **User variables**, select **Path**, **Edit**, **New**, and paste the `bin` folder.
+   Paste the folder that contains `ffmpeg.exe`, not the folder above it and not the path of `ffmpeg.exe` itself.
+4. Open a new PowerShell and run `ffmpeg -version` and `ffprobe -version`.
+
+If you cannot change PATH, session video and playback can still use a configured folder. The Recording Merger
+cannot; it only searches PATH.
+
+### macOS
+
+```bash
+brew install ffmpeg
+```
+
+Homebrew puts `ffmpeg` and `ffprobe` on PATH, with libx264.
+
+### Linux
+
+Install the `ffmpeg` package from your distribution so `ffmpeg` and `ffprobe` are on PATH. On Debian and Ubuntu:
+
+```bash
+sudo apt update
+sudo apt install ffmpeg
+```
+
+### Using a folder when FFmpeg is not on PATH
+
+Session video rotation and playback also accept a directory. `ffmpeg_dir` is the folder that **contains** the
+program (`ffmpeg.exe` on Windows, `ffmpeg` on macOS and Linux). It is not the path of the program file.
+
+Put this in `nucleuskit_toolkit_config.json` in the directory you start Nucleus-Kit from. For a desktop shortcut,
+that is the **Start in** folder (see [Desktop shortcut (Windows)](#desktop-shortcut-windows)):
+
+```json
+{
+  "ffmpeg_dir": "C:/ffmpeg/bin"
+}
+```
+
+The environment variable `HERMES_FFMPEG_DIR` is the same folder and overrides the JSON file.
+
+## Optional POV movie conversion
+
+This step is only for a POV camera file that has a UUID name and **no extension**. Nucleus-Kit renames it to
+`.mkv`, re-muxes it to `.mp4` with `ffmpeg -c copy`, and puts the result back under the original name. It runs
+only when all three settings below are set. If any one is missing, the step is skipped.
+
+| Setting | JSON key | Environment variable | Meaning |
+|---------|----------|----------------------|---------|
+| Data folder | `pov_data_root` | `HERMES_POV_DATA_ROOT` | Folder that contains the UUID-named file |
+| File name | `screen_id` | `HERMES_POV_SCREEN_ID` | That file's name, without an extension |
+| FFmpeg folder | `ffmpeg_dir` | `HERMES_FFMPEG_DIR` | Folder that contains the FFmpeg program (see [FFmpeg](#ffmpeg)) |
+
+The source path is `<pov_data_root>/<screen_id>`.
+
+Example `nucleuskit_toolkit_config.json`:
+
+```json
+{
+  "pov_data_root": "D:/recordings/pov",
+  "screen_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "ffmpeg_dir": "C:/ffmpeg/bin"
+}
+```
+
+Settings are merged in this order. A later source replaces the same key from an earlier one:
+
+1. `hermes_standalone_config.json` in the current working directory (legacy name, still read)
+2. `nucleuskit_pipeline_config.json` in the current working directory (legacy name, still read)
+3. `nucleuskit_toolkit_config.json` in the current working directory
+4. The file passed with `--config` (command line only)
+5. The environment variables in the table above
+
+The **Process** page does not ask for a config path. It reads the JSON files in its working directory and the
+environment variables. From the command line, `--config` adds one more file between those JSON files and the
+environment variables.
 
 ## Technical documentation
 
