@@ -47,22 +47,28 @@ upgraded by another tool installed next to it.
 
 ### From PyPI
 
+The environment is created in the folder where you run these commands, as a `.venv` folder.
+
 **Windows (PowerShell)**
 
+Open the folder where Nucleus-Kit should be installed. In File Explorer, click the address bar, type `powershell`, and press Enter. PowerShell opens in that folder.
+
 ```powershell
-python -m venv "$env:USERPROFILE\nucleuskit"
-& "$env:USERPROFILE\nucleuskit\Scripts\python.exe" -m pip install --upgrade pip
-& "$env:USERPROFILE\nucleuskit\Scripts\python.exe" -m pip install "nucleuskit-toolkit[gui]"
-& "$env:USERPROFILE\nucleuskit\Scripts\nucleuskit-toolkit.exe" --help
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install "nucleuskit-toolkit[gui]"
+.\.venv\Scripts\nucleuskit-toolkit.exe --help
 ```
 
 **macOS / Linux**
 
+In a terminal, `cd` to the folder where Nucleus-Kit should be installed, then:
+
 ```bash
-python3 -m venv ~/nucleuskit
-~/nucleuskit/bin/python -m pip install --upgrade pip
-~/nucleuskit/bin/python -m pip install "nucleuskit-toolkit[gui]"
-~/nucleuskit/bin/nucleuskit-toolkit --help
+python3 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/python -m pip install "nucleuskit-toolkit[gui]"
+.venv/bin/nucleuskit-toolkit --help
 ```
 
 The `gui` extra installs the desktop interface (PySide6 / Qt 6), Bluetooth and serial streaming and MQTT. Without it
@@ -202,13 +208,14 @@ The environment variable `HERMES_FFMPEG_DIR` is the same folder and overrides th
 
 ### Upgrade and uninstall
 
-```bash
-python -m pip install --upgrade "nucleuskit-toolkit[gui]"
-python -m pip uninstall nucleuskit-toolkit re-ak-core
+```powershell
+.\.venv\Scripts\python.exe -m pip install --upgrade "nucleuskit-toolkit[gui]"
+.\.venv\Scripts\python.exe -m pip uninstall nucleuskit-toolkit re-ak-core
 ```
 
-Use the environment's `python` (for example `"$env:USERPROFILE\nucleuskit\Scripts\python.exe"`), or delete the
-environment folder to remove everything. With pipx: `pipx upgrade nucleuskit-toolkit` / `pipx uninstall nucleuskit-toolkit`.
+Run these from the folder that contains `.venv`. On macOS and Linux, use `.venv/bin/python` in place of
+`.\.venv\Scripts\python.exe`. Deleting the `.venv` folder removes the install. With pipx:
+`pipx upgrade nucleuskit-toolkit` / `pipx uninstall nucleuskit-toolkit`.
 
 ## Run
 
@@ -217,8 +224,10 @@ Run the commands with the environment's executables (as below), or activate the 
 
 **Graphical mode** (see [Graphical interface](#graphical-interface); needs the `gui` extra):
 
+From the folder that contains `.venv`:
+
 ```powershell
-& "$env:USERPROFILE\nucleuskit\Scripts\nucleuskit-toolkit.exe"
+.\.venv\Scripts\nucleuskit-toolkit.exe
 ```
 
 The same as `python -m nucleuskit_toolkit`. From a source checkout, `launch_app.bat` runs `python -m nucleuskit_toolkit`
@@ -226,8 +235,10 @@ with the first `python` on the PATH: activate the environment before running it.
 
 **Headless mode** (one session, then exit; for automation and CI):
 
+From the folder that contains `.venv`:
+
 ```powershell
-nucleuskit-toolkit --session "D:\path\to\session_folder"
+.\.venv\Scripts\nucleuskit-toolkit.exe --session "D:\path\to\session_folder"
 ```
 
 Options:
@@ -247,29 +258,27 @@ Replace the packaged logo anytime with your own PNG at [`nucleuskit_toolkit/ui/r
 
 A desktop shortcut opens Nucleus-Kit like any other program. You do not type a Python command to start it.
 
-The [PyPI install](#from-pypi) saves the program in your user folder. Find it in File Explorer:
+The install creates a `.venv` folder in the folder where you ran the commands. `pythonw.exe` is inside it:
 
-1. Open **File Explorer**.
-2. Click the address bar (the long box at the top that shows which folder is open).
-3. Type `%USERPROFILE%\nucleuskit\Scripts` and press Enter.
+1. In File Explorer, open the folder where you ran the install (for example `D:\NucleusKit`).
+2. Open `.venv`, then `Scripts`.
 
-`%USERPROFILE%` is your personal folder, usually `C:\Users\` plus your Windows name, the same place that holds
-Documents and Downloads. The `Scripts` folder should contain a file named `pythonw.exe`.
+That `Scripts` folder contains `pythonw.exe`. A [source install](#from-source-development) uses the same
+`.venv\Scripts` folder inside the cloned repository. After a pipx install the file is in
+`%USERPROFILE%\pipx\venvs\nucleuskit-toolkit\Scripts`.
 
-If File Explorer says that folder does not exist, the install was saved somewhere else. Use the search box in File
-Explorer and search for `pythonw.exe`. Pick the copy that is inside a folder named `Scripts`. After a pipx install
-that folder is `%USERPROFILE%\pipx\venvs\nucleuskit-toolkit\Scripts`. After a [source install](#from-source-development)
-it is the `.venv\Scripts` folder inside the cloned repository.
+If you do not remember the folder, use the search box in File Explorer and search for `pythonw.exe`. Pick the copy
+that is inside a `.venv\Scripts` folder.
 
 Create the shortcut from that file:
 
 1. In the `Scripts` folder, hold **Shift**, right-click `pythonw.exe`, and choose **Copy as path**. The copied text
-   already has quotes around it, for example `"C:\Users\Alex\nucleuskit\Scripts\pythonw.exe"`.
+   already has quotes around it, for example `"D:\NucleusKit\.venv\Scripts\pythonw.exe"`.
 2. Right-click the desktop, then **New → Shortcut**.
 3. In **Type the location of the item**, paste that path, type a space, then type `-m nucleuskit_toolkit`.
    The full line looks like this, with your own path in place of the example:
 
-   `"C:\Users\Alex\nucleuskit\Scripts\pythonw.exe" -m nucleuskit_toolkit`
+   `"D:\NucleusKit\.venv\Scripts\pythonw.exe" -m nucleuskit_toolkit`
 
    `pythonw.exe` opens the application window and does not leave a black command window on the screen.
 4. Click **Next**, name the shortcut **Nucleus-Kit**, and click **Finish**.
