@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.2.1
+
+### Fixed
+
+- Emotions no longer show a slow triangular oscillation caused by the headset clock drift: requires re-ak-core
+  1.0.2, which writes `results/Emotions.csv` without blending adjacent classifier labels. Sessions reprocessed
+  with this version give different `Emotions.csv` values (same columns).
+
 ## 2.2.0
 
 ### Changed
