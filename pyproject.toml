@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nucleuskit-toolkit"
-version = "2.2.0"
+version = "2.2.1"
 description = "Nucleus-Kit offline processing toolkit (Hermes EEG/EMG, Shimmer PPG/EDA)"
 readme = "README.md"
 license = "GPL-3.0-or-later"
@@ -24,7 +24,7 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Medical Science Apps.",
 ]
 dependencies = [
-    "re-ak-core>=1.0.1,<1.1",
+    "re-ak-core>=1.0.2,<1.1",
     "numpy>=2.5",
     "pandas>=2.3",
     "scipy>=1.17,<1.18",
