@@ -11,9 +11,9 @@ triggers, waits for the runs, tests the TestPyPI package in a throwaway venv and
 A version can only be uploaded once, so the script is resumable: run it again after any failure or Ctrl+C and it
 continues from what is already done.
 
-When the current version is already on PyPI, the script asks for the new version and opens the pull request that
-bumps it (version files and a CHANGELOG draft from the commits since the last tag). Merge it, then run the script
-again to release. Merging stays with a person.
+When the current version is already on PyPI, the script first asks for the new version and opens the release notes
+(a draft of the commit subjects since the last tag) for editing. It runs the tests, opens the pull request with the
+version files and the CHANGELOG section, merges it (only if it changes nothing else) and continues with the release.
 
 Options: ``--dry-run`` stops after the checks and prints the remaining steps; ``--skip-tests`` skips ruff and pytest.
 """
@@ -55,6 +55,7 @@ RUN_START_TIMEOUT_S = 180
 INDEX_TIMEOUT_S = 600
 INSTALL_ATTEMPTS = 6
 INSTALL_RETRY_S = 30
+MERGE_ATTEMPTS = 6
 
 
 class ReleaseError(Exception):
@@ -170,10 +171,14 @@ def bump_text(text: str, pattern: str, new: str) -> str:
     return bumped
 
 
-def add_changelog_section(text: str, version: str, subjects: list[str]) -> str:
-    """New section above the first ``## `` heading, listing the commit subjects as a draft."""
+def unexpected_files(changed: set[str], allowed: set[str]) -> list[str]:
+    return sorted(changed - allowed)
+
+
+def add_changelog_section(text: str, version: str, notes: str) -> str:
+    """New section above the first ``## `` heading."""
     newline = "\r\n" if "\r\n" in text else "\n"
-    body = newline.join(f"- {subject}" for subject in subjects)
+    body = notes.replace("\n", newline)
     section = f"## {version}{newline}{newline}{body}{newline}{newline}"
     first = re.search(r"^## ", text, re.MULTILINE)
     if first is None:
@@ -339,24 +344,65 @@ def edit_file(path: Path, change) -> None:  # type: ignore[no-untyped-def]
         file.write(change(text))
 
 
-def bump_files(project: Project, new: str, subjects: list[str]) -> list[Path]:
-    """Write the new version and the CHANGELOG draft; returns the files to commit."""
-    pyproject = project.root / "pyproject.toml"
-    init_file = project.source_root / project.import_name / "__init__.py"
-    changelog = project.root / "CHANGELOG.md"
+def edit_notes(draft: str) -> str:
+    """Let the person edit the release notes in an editor; returns what they saved."""
+    with tempfile.TemporaryDirectory(prefix="release-notes-", ignore_cleanup_errors=True) as tmp:
+        path = Path(tmp) / "release-notes.md"
+        path.write_text(draft + "\n", encoding="utf-8")
+        editor = os.environ.get("EDITOR")
+        if os.name == "nt":
+            # Windows 11 Notepad can return at once when it opens in a tab, so waiting on the process is not enough.
+            subprocess.Popen(["notepad", str(path)])
+            input("Edit the release notes in Notepad, save, then press Enter here: ")
+        elif editor:
+            sh(*editor.split(), str(path), check=False, capture=False)
+        else:
+            print(f"--- Release notes (set EDITOR to edit them) ---\n{draft}\n---")
+        return path.read_text(encoding="utf-8-sig").replace("\r\n", "\n").strip()
+
+
+def version_files(project: Project) -> list[Path]:
+    """The only files a version bump may change."""
+    return [
+        project.root / "pyproject.toml",
+        project.source_root / project.import_name / "__init__.py",
+        project.root / "CHANGELOG.md",
+        project.root / "README.md",
+    ]
+
+
+def bump_files(project: Project, new: str, notes: str) -> list[Path]:
+    """Write the new version and the release notes; returns the files to commit."""
+    pyproject, init_file, changelog, readme = version_files(project)
     edit_file(pyproject, lambda t: bump_text(t, r'^(version\s*=\s*")([^"]+)(")', new))
     edit_file(init_file, lambda t: bump_text(t, r'^(__version__\s*=\s*["\'])([^"\']+)(["\'])', new))
-    edit_file(changelog, lambda t: add_changelog_section(t, new, subjects))
+    edit_file(changelog, lambda t: add_changelog_section(t, new, notes))
     files = [pyproject, init_file, changelog]
-    readme = project.root / "README.md"
     if readme.is_file() and f"Status: **{project.version}**" in readme.read_text(encoding="utf-8"):
         edit_file(readme, lambda t: t.replace(f"Status: **{project.version}**", f"Status: **{new}**", 1))
         files.append(readme)
     return files
 
 
-def open_bump_pr(project: Project) -> int:
-    """Ask for the new version and open the pull request that bumps it."""
+def merge_bump_pr(url: str, allowed: set[str]) -> None:
+    """Merge the bump pull request, only if it touches nothing but the version files and the CHANGELOG."""
+    changed = set(sh("gh", "pr", "view", url, "--json", "files", "--jq", ".files[].path").stdout.split())
+    extra = unexpected_files(changed, allowed)
+    if extra:
+        raise ReleaseError(f"Not merging {url}: it also changes {', '.join(extra)}.")
+    for attempt in range(1, MERGE_ATTEMPTS + 1):  # GitHub needs a moment to compute mergeability of a new PR
+        result = sh("gh", "pr", "merge", url, "--merge", check=False)
+        if result.returncode == 0:
+            print(f"  Merged {url}")
+            return
+        if attempt == MERGE_ATTEMPTS:
+            raise ReleaseError(f"Could not merge {url}:\n{result.stderr.strip()}\n"
+                               "Merge it on GitHub, run git pull --ff-only, then run this script again.")
+        time.sleep(POLL_SECONDS)
+
+
+def bump_version(project: Project, skip_tests: bool) -> bool:
+    """Ask for the new version, then open and merge its pull request. False when there is nothing to do."""
     if sh("git", "status", "--porcelain", "--untracked-files=no").stdout.strip():
         raise ReleaseError("There are uncommitted changes to tracked files.")
     branch = sh("git", "branch", "--show-current").stdout.strip()
@@ -373,47 +419,81 @@ def open_bump_pr(project: Project) -> int:
     subjects = sh("git", "log", "--no-merges", "--format=%s", commits).stdout.splitlines()
     if not subjects:
         print(f"Current version: {current}\nNo commits since that tag, nothing to release.")
-        return 0
+        return False
 
     print(f"Current version: {current or 'none'}")
     new = input("New version: ").strip()
     if not new:
         print("No version entered, nothing changed.")
-        return 0
+        return False
     error = new_version_error(new, {*tags, *pypi_versions(PROD_HOST, project.name)})
     if error:
         raise ReleaseError(error)
+    failures = dependency_failures(project)
+    if failures:
+        raise ReleaseError("\n".join(failures))
 
     new_branch = release_branch_name(new, date.today())
-    sh("git", "switch", "-c", new_branch)
-    try:
-        files = bump_files(project, new, subjects)
-        sh("git", "add", "--", *(str(path) for path in files))
-        sh("git", "commit", "-m", f"build: release {new}")
-        sh("git", "push", "-u", "origin", new_branch)
-        url = sh("gh", "pr", "create", "--base", DEFAULT_BRANCH, "--head", new_branch,
-                 "--title", f"build: release {project.name} {new}",
-                 "--body", _bump_pr_body(new, subjects)).stdout.strip()
-    finally:
-        sh("git", "switch", DEFAULT_BRANCH, check=False)
-    print(f"\nPull request: {url}")
-    print("The CHANGELOG section is a draft of the commit subjects: edit it in the pull request.")
-    print("Merge it, run git pull --ff-only, then run this script again to release.")
-    return 0
+    relative = [path.relative_to(project.root).as_posix() for path in version_files(project)]
+    # A previous run stopped before the merge: finish that pull request.
+    listed = sh("gh", "pr", "list", "--head", new_branch, "--state", "open", "--json", "url").stdout
+    open_prs = json.loads(listed or "[]")
+    if open_prs:
+        url = open_prs[0]["url"]
+        print(f"  Resuming with the open pull request {url}")
+    else:
+        if sh("git", "rev-parse", "--verify", "--quiet", f"refs/heads/{new_branch}", check=False).returncode == 0:
+            raise ReleaseError(f"Branch {new_branch} already exists: git branch -D {new_branch}, then run this again.")
+        notes = edit_notes("\n".join(f"- {subject}" for subject in subjects))
+        if not notes:
+            print("The release notes are empty, nothing changed.")
+            return False
+        if skip_tests:
+            print("Skipping ruff and pytest (--skip-tests).")
+        else:
+            print("Testing this checkout")
+            run_tests(project)
+        sh("git", "switch", "-c", new_branch)
+        try:
+            files = bump_files(project, new, notes)
+            sh("git", "add", "--", *(str(path) for path in files))
+            sh("git", "commit", "-m", f"build: release {new}")
+            sh("git", "push", "-u", "origin", new_branch)
+            url = sh("gh", "pr", "create", "--base", DEFAULT_BRANCH, "--head", new_branch,
+                     "--title", f"build: release {project.name} {new}",
+                     "--body", _bump_pr_body(new, notes)).stdout.strip()
+        finally:
+            sh("git", "switch", DEFAULT_BRANCH, check=False)
+    merge_bump_pr(url, set(relative))
+    sh("git", "pull", "--quiet", "--ff-only")
+    merged = read_project(project.root).version
+    if merged != new:
+        raise ReleaseError(f"{DEFAULT_BRANCH} is at version {merged} after the merge, expected {new}.")
+    return True
 
 
-def _bump_pr_body(version: str, subjects: list[str]) -> str:
-    changes = "\n".join(f"- {subject}" for subject in subjects)
+def _bump_pr_body(version: str, notes: str) -> str:
     return (
-        f"## Goal\nPrepare the {version} release.\n\n"
-        f"## Changes\n- Version {version} and a CHANGELOG draft, from these commits:\n\n{changes}\n\n"
-        "## How to test\n- After merging, the release script runs the checks and tests the TestPyPI package.\n\n"
+        f"## Goal\nRelease version {version}.\n\n"
+        f"## Changes\n- Version {version} and its CHANGELOG section:\n\n{notes}\n\n"
+        "## How to test\n- The release script ran ruff and pytest before this pull request, and tests the "
+        "TestPyPI package after it.\n\n"
         "## Related repos\n- None\n\n"
-        "## Points of attention\n- Edit the CHANGELOG draft before merging: it becomes the release notes.\n"
+        "## Points of attention\n- Opened and merged by `deploy_pip_package.bat`, which merges it only when it "
+        "changes nothing but the version files and the CHANGELOG.\n"
     )
 
 
 # ── Checks ────────────────────────────────────────────────────────────────────
+
+
+def dependency_failures(project: Project) -> list[str]:
+    urls = direct_url_dependencies(project.dependencies)
+    failures = [f"PyPI refuses the direct URL dependency: {dep}" for dep in urls]
+    for name, floor in internal_floors(project.dependencies).items():
+        if floor not in pypi_versions(PROD_HOST, name):
+            failures.append(f"This release requires {name} {floor}, which is not on PyPI yet: release it first.")
+    return failures
 
 
 def preflight(project: Project, state: State) -> list[str]:
@@ -433,11 +513,7 @@ def preflight(project: Project, state: State) -> list[str]:
         failures.append(f".github/workflows/{WORKFLOW} is missing.")
     if not is_newer(version, pypi_versions(PROD_HOST, project.name)):
         failures.append(f"{version} is not newer than what is on PyPI: bump the version through a pull request.")
-    for dep in direct_url_dependencies(project.dependencies):
-        failures.append(f"PyPI refuses the direct URL dependency: {dep}")
-    for name, floor in internal_floors(project.dependencies).items():
-        if floor not in pypi_versions(PROD_HOST, name):
-            failures.append(f"This release requires {name} {floor}, which is not on PyPI yet: release it first.")
+    failures.extend(dependency_failures(project))
 
     if sh("git", "status", "--porcelain", "--untracked-files=no").stdout.strip():
         failures.append("There are uncommitted changes to tracked files.")
@@ -483,7 +559,9 @@ def release(root: Path, *, dry_run: bool = False, skip_tests: bool = False) -> i
         if dry_run:
             print("Already on PyPI. Without --dry-run, the script asks for the new version.")
             return 0
-        return open_bump_pr(project)
+        if not bump_version(project, skip_tests):
+            return 0
+        return release(root, skip_tests=True)  # the tests just ran on this code
 
     state = read_state(project.version, project.name)
     failures = preflight(project, state)

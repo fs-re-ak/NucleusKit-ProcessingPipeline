@@ -463,9 +463,9 @@ Run this at the repository root, on an up-to-date `main`:
 .\deploy_pip_package.bat
 ```
 
-When the current version is already on PyPI, the script first shows the latest tag and asks for the new version, then opens the pull request that bumps it, with a CHANGELOG draft from the commit subjects since that tag. Edit the draft and merge the pull request, run `git pull --ff-only`, then run the script again to release.
+When the current version is already on PyPI, the script first shows the latest tag and asks for the new version, then opens the release notes in an editor (a draft of the commit subjects since that tag). It runs ruff and pytest, opens the pull request with the version files and the CHANGELOG section, and merges it, only if it changes nothing else. Then it continues with the release, so one run goes from the new version to PyPI.
 
-The script checks the release (versions, CHANGELOG, dependencies, ruff, pytest), pushes the tag that uploads to TestPyPI, tests that package in a throwaway venv, then asks for confirmation before creating the GitHub release that uploads to PyPI. When a run needs an approval on GitHub, it prints the link and waits. Run it again after any failure or Ctrl+C: it continues from what is already done. `.\deploy_pip_package.bat --dry-run` only runs the checks.
+For the release itself, the script checks versions, CHANGELOG and dependencies, pushes the tag that uploads to TestPyPI, tests that package in a throwaway venv, then asks for confirmation before creating the GitHub release that uploads to PyPI. When a run needs an approval on GitHub, it prints the link and waits. Run it again after any failure or Ctrl+C: it continues from what is already done. `.\deploy_pip_package.bat --dry-run` only runs the checks.
 
 It needs `git`, an authenticated `gh`, Python 3.11 or newer and the `dev` extra. The upload itself is done by `.github/workflows/publish.yml` with Trusted Publishing, so no token is stored.
 

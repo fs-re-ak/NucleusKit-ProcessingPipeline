@@ -95,6 +95,11 @@ class FakeWorld:
         self.actions: list[str] = []
         self.tags = ["1.0", "1.1^{}", "1.0.1", "1.0.2"]
         self.subjects = "fix(sync): one\ndocs: two\n"
+        self.open_prs: list[dict[str, str]] = []
+        self.pr_files = "pyproject.toml\nsrc/reak_core/__init__.py\nCHANGELOG.md\n"
+        self.merge_code = 0
+        self.notes = "- Edited notes."
+        monkeypatch.setattr(rp, "edit_notes", lambda draft: self.edit(draft))
         (tmp_path / "pyproject.toml").write_text(
             f'[project]\nname = "re-ak-core"\nversion = "{version}"\ndependencies = []\n', encoding="utf-8")
         package = tmp_path / "src" / "reak_core"
@@ -113,6 +118,11 @@ class FakeWorld:
         monkeypatch.setattr("builtins.input", lambda prompt="": self.answer(prompt))
         self.answers = ["yes"]
 
+    def edit(self, draft: str) -> str:
+        self.actions.append("edit")
+        self.draft = draft
+        return self.notes
+
     def answer(self, prompt: str) -> str:
         self.actions.append("prompt")
         return self.answers.pop(0)
@@ -128,7 +138,7 @@ class FakeWorld:
             case ("gh", "release", "create"):
                 self.actions.append("release")
                 self.released = True
-                self.pypi.add(self.version)
+                self.pypi.add(cmd[3])
             case ("gh", "run", "list"):
                 out = json.dumps([{"databaseId": 1, "status": "completed", "conclusion": "success", "url": "u"}])
             case ("git", "ls-remote", _) if cmd[3:] == ("origin",):
@@ -144,6 +154,15 @@ class FakeWorld:
             case ("gh", "pr", "create"):
                 self.actions.append("pr")
                 out = "https://example.test/pr/1\n"
+            case ("gh", "pr", "list"):
+                out = json.dumps(self.open_prs)
+            case ("gh", "pr", "view"):
+                out = self.pr_files
+            case ("gh", "pr", "merge"):
+                self.actions.append("merge")
+                code = self.merge_code
+            case ("git", "rev-parse", "--verify"):
+                code = 1  # no local release branch
             case ("git", "status", _):
                 out = self.dirty
             case ("git", "rev-parse", _):
@@ -154,8 +173,9 @@ class FakeWorld:
                 self.actions.append("tag")
             case ("git", "push", _):
                 self.actions.append("push")
-                self.tag_commit = self.HEAD
-                self.testpypi.add(self.version)
+                if cmd[-1].startswith("refs/tags/"):
+                    self.tag_commit = self.HEAD
+                    self.testpypi.add(cmd[-1].removeprefix("refs/tags/"))
         return subprocess.CompletedProcess(cmd, code, out, "")
 
 
@@ -178,21 +198,73 @@ def test_answering_no_stops_before_pypi_and_resumes(tmp_path: Path, monkeypatch:
     assert world.actions == ["verify", "prompt", "release"]  # neither tests nor tag again
 
 
-def test_version_on_pypi_asks_for_the_new_one_and_opens_a_pr(tmp_path, monkeypatch, capsys) -> None:
+def test_one_run_goes_from_new_version_to_pypi(tmp_path, monkeypatch, capsys) -> None:
     world = FakeWorld(tmp_path, monkeypatch, version="1.0.2")
     (tmp_path / "CHANGELOG.md").write_bytes(b"# Changelog\r\n\r\n## 1.0.2\r\n\r\n- Old.\r\n")
-    world.answers = ["1.0.3"]
+    world.answers = ["1.0.3", "yes"]
     assert rp.release(tmp_path) == 0
 
     assert "Current version: 1.0.2\n" in capsys.readouterr().out
     branch = rp.release_branch_name("1.0.3", rp.date.today())
-    assert world.actions == ["prompt", f"branch {branch}", "commit: build: release 1.0.3", "push", "pr"]
+    assert world.actions == [
+        "prompt", "edit", "tests", f"branch {branch}", "commit: build: release 1.0.3", "push", "pr", "merge",
+        "tag", "push", "verify", "prompt", "release",  # the tests do not run twice
+    ]
+    assert world.draft == "- fix(sync): one\n- docs: two"
+    assert "1.0.3" in world.pypi
     assert 'version = "1.0.3"' in (tmp_path / "pyproject.toml").read_text(encoding="utf-8")
     assert '__version__ = "1.0.3"' in (tmp_path / "src/reak_core/__init__.py").read_text(encoding="utf-8")
     changelog = (tmp_path / "CHANGELOG.md").read_bytes().decode("utf-8")
-    assert changelog == ("# Changelog\r\n\r\n## 1.0.3\r\n\r\n- fix(sync): one\r\n- docs: two\r\n\r\n"
-                         "## 1.0.2\r\n\r\n- Old.\r\n")  # line endings kept
-    assert rp.changelog_section(changelog.replace("\r\n", "\n"), "1.0.3") == "- fix(sync): one\n- docs: two"
+    assert changelog == "# Changelog\r\n\r\n## 1.0.3\r\n\r\n- Edited notes.\r\n\r\n## 1.0.2\r\n\r\n- Old.\r\n"
+
+
+def test_pr_changing_anything_else_is_not_merged(tmp_path, monkeypatch) -> None:
+    world = FakeWorld(tmp_path, monkeypatch, version="1.0.2")
+    world.answers = ["1.0.3"]
+    world.pr_files += "src/reak_core/femg/emotions.py\n"
+    with pytest.raises(rp.ReleaseError, match="emotions.py"):
+        rp.release(tmp_path)
+    assert "merge" not in world.actions and "tag" not in world.actions
+
+
+def test_failed_merge_stops_with_the_way_forward(tmp_path, monkeypatch) -> None:
+    world = FakeWorld(tmp_path, monkeypatch, version="1.0.2")
+    world.answers = ["1.0.3"]
+    world.merge_code = 1
+    with pytest.raises(rp.ReleaseError, match="Merge it on GitHub"):
+        rp.release(tmp_path)
+    assert world.actions.count("merge") == rp.MERGE_ATTEMPTS
+    assert "tag" not in world.actions
+
+
+def test_open_pr_from_a_previous_run_is_resumed(tmp_path, monkeypatch) -> None:
+    world = FakeWorld(tmp_path, monkeypatch, version="1.0.2")
+    world.answers = ["1.0.3"]
+    world.open_prs = [{"url": "https://example.test/pr/1"}]
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "re-ak-core"\nversion = "1.0.2"\ndependencies = []\n', encoding="utf-8")
+    with pytest.raises(rp.ReleaseError, match="expected 1.0.3"):  # the fake merge changes no file here
+        rp.release(tmp_path)
+    assert world.actions == ["prompt", "merge"]  # no new branch, notes or tests
+
+
+def test_empty_notes_change_nothing(tmp_path, monkeypatch) -> None:
+    world = FakeWorld(tmp_path, monkeypatch, version="1.0.2")
+    world.answers = ["1.0.3"]
+    world.notes = ""
+    assert rp.release(tmp_path) == 0
+    assert world.actions == ["prompt", "edit"]
+    assert 'version = "1.0.2"' in (tmp_path / "pyproject.toml").read_text(encoding="utf-8")
+
+
+def test_unavailable_dependency_stops_before_the_bump(tmp_path, monkeypatch) -> None:
+    world = FakeWorld(tmp_path, monkeypatch, version="1.0.2")
+    world.answers = ["1.0.3"]
+    (tmp_path / "pyproject.toml").write_text(
+        '[project]\nname = "re-ak-core"\nversion = "1.0.2"\ndependencies = ["re-ak-core>=9.0.0"]\n', encoding="utf-8")
+    with pytest.raises(rp.ReleaseError, match="not on PyPI yet"):
+        rp.release(tmp_path)
+    assert world.actions == ["prompt"]
 
 
 @pytest.mark.parametrize("answer", ["", "1.0.2", "1.0.1", "1.0", "v1.0.3", "1.0.3a1"])
