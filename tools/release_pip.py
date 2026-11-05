@@ -9,7 +9,11 @@ to TestPyPI, a published GitHub release uploads to PyPI. This script checks ever
 triggers, waits for the runs, tests the TestPyPI package in a throwaway venv and asks for confirmation before PyPI.
 
 A version can only be uploaded once, so the script is resumable: run it again after any failure or Ctrl+C and it
-continues from what is already done. Version bumps and merges stay in pull requests.
+continues from what is already done.
+
+When the current version is already on PyPI, the script asks for the new version and opens the pull request that
+bumps it (version files and a CHANGELOG draft from the commits since the last tag). Merge it, then run the script
+again to release. Merging stays with a person.
 
 Options: ``--dry-run`` stops after the checks and prints the remaining steps; ``--skip-tests`` skips ruff and pytest.
 """
@@ -28,6 +32,7 @@ import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
+from datetime import date
 from pathlib import Path
 
 try:
@@ -136,6 +141,44 @@ def internal_floors(dependencies: tuple[str, ...]) -> dict[str, str]:
 def direct_url_dependencies(dependencies: tuple[str, ...]) -> list[str]:
     """Dependencies PyPI refuses (``name @ git+https://...``)."""
     return [dep for dep in dependencies if re.match(r"[A-Za-z0-9._-]+(\[[^\]]*\])?\s*@", dep)]
+
+
+def latest_version(names: list[str]) -> str | None:
+    """Highest ``x.y.z`` among tag names; older tags like ``1.1`` and peeled ``1.1^{}`` lines do not count."""
+    versions = [name for name in names if version_key(name) is not None]
+    return max(versions, key=version_key) if versions else None
+
+
+def new_version_error(new: str, published: set[str]) -> str | None:
+    """Why this version cannot be the next one, or None. ``published`` holds the tags and the PyPI versions."""
+    if version_key(new) is None:
+        return f"'{new}' is not x.y.z (for example 1.0.3)."
+    if not is_newer(new, published):
+        return f"{new} is not newer than {latest_version(sorted(published))}."
+    return None
+
+
+def release_branch_name(version: str, today: date) -> str:
+    return f"{today:%Y-%m}-release-{version.replace('.', '-')}"
+
+
+def bump_text(text: str, pattern: str, new: str) -> str:
+    """Replace group 2 of the first match of ``pattern``, leaving the rest of the file untouched."""
+    bumped, count = re.subn(pattern, lambda m: f"{m.group(1)}{new}{m.group(3)}", text, count=1, flags=re.MULTILINE)
+    if count != 1:
+        raise ReleaseError(f"Version not found with pattern {pattern}.")
+    return bumped
+
+
+def add_changelog_section(text: str, version: str, subjects: list[str]) -> str:
+    """New section above the first ``## `` heading, listing the commit subjects as a draft."""
+    newline = "\r\n" if "\r\n" in text else "\n"
+    body = newline.join(f"- {subject}" for subject in subjects)
+    section = f"## {version}{newline}{newline}{body}{newline}{newline}"
+    first = re.search(r"^## ", text, re.MULTILINE)
+    if first is None:
+        return text.rstrip() + newline + newline + section
+    return text[: first.start()] + section + text[first.start():]
 
 
 def plan_steps(state: State) -> list[str]:
@@ -280,6 +323,96 @@ def publish_release(project: Project, notes: str) -> None:
            "--title", f"{project.name} {project.version}", "--notes-file", str(path))
 
 
+# ── Version bump ──────────────────────────────────────────────────────────────
+
+
+def remote_tags() -> list[str]:
+    out = sh("git", "ls-remote", "--tags", "origin").stdout
+    return [line.split("refs/tags/", 1)[1] for line in out.splitlines() if "refs/tags/" in line]
+
+
+def edit_file(path: Path, change) -> None:  # type: ignore[no-untyped-def]
+    """Apply ``change`` to the text of a file, keeping its line endings."""
+    with path.open(encoding="utf-8", newline="") as file:
+        text = file.read()
+    with path.open("w", encoding="utf-8", newline="") as file:
+        file.write(change(text))
+
+
+def bump_files(project: Project, new: str, subjects: list[str]) -> list[Path]:
+    """Write the new version and the CHANGELOG draft; returns the files to commit."""
+    pyproject = project.root / "pyproject.toml"
+    init_file = project.source_root / project.import_name / "__init__.py"
+    changelog = project.root / "CHANGELOG.md"
+    edit_file(pyproject, lambda t: bump_text(t, r'^(version\s*=\s*")([^"]+)(")', new))
+    edit_file(init_file, lambda t: bump_text(t, r'^(__version__\s*=\s*["\'])([^"\']+)(["\'])', new))
+    edit_file(changelog, lambda t: add_changelog_section(t, new, subjects))
+    files = [pyproject, init_file, changelog]
+    readme = project.root / "README.md"
+    if readme.is_file() and f"Status: **{project.version}**" in readme.read_text(encoding="utf-8"):
+        edit_file(readme, lambda t: t.replace(f"Status: **{project.version}**", f"Status: **{new}**", 1))
+        files.append(readme)
+    return files
+
+
+def open_bump_pr(project: Project) -> int:
+    """Ask for the new version and open the pull request that bumps it."""
+    if sh("git", "status", "--porcelain", "--untracked-files=no").stdout.strip():
+        raise ReleaseError("There are uncommitted changes to tracked files.")
+    branch = sh("git", "branch", "--show-current").stdout.strip()
+    if branch != DEFAULT_BRANCH:
+        raise ReleaseError(f"Run this from {DEFAULT_BRANCH} (currently on '{branch or 'detached HEAD'}').")
+    sh("git", "fetch", "--quiet", "--tags", "origin", DEFAULT_BRANCH)
+    head = sh("git", "rev-parse", "HEAD").stdout.strip()
+    if head != sh("git", "rev-parse", f"origin/{DEFAULT_BRANCH}").stdout.strip():
+        raise ReleaseError(f"Local {DEFAULT_BRANCH} differs from origin: git pull --ff-only")
+
+    tags = remote_tags()
+    current = latest_version(tags)
+    commits = f"{current}..HEAD" if current else "HEAD"
+    subjects = sh("git", "log", "--no-merges", "--format=%s", commits).stdout.splitlines()
+    if not subjects:
+        print(f"Current version: {current}\nNo commits since that tag, nothing to release.")
+        return 0
+
+    print(f"Current version: {current or 'none'}")
+    new = input("New version: ").strip()
+    if not new:
+        print("No version entered, nothing changed.")
+        return 0
+    error = new_version_error(new, {*tags, *pypi_versions(PROD_HOST, project.name)})
+    if error:
+        raise ReleaseError(error)
+
+    new_branch = release_branch_name(new, date.today())
+    sh("git", "switch", "-c", new_branch)
+    try:
+        files = bump_files(project, new, subjects)
+        sh("git", "add", "--", *(str(path) for path in files))
+        sh("git", "commit", "-m", f"build: release {new}")
+        sh("git", "push", "-u", "origin", new_branch)
+        url = sh("gh", "pr", "create", "--base", DEFAULT_BRANCH, "--head", new_branch,
+                 "--title", f"build: release {project.name} {new}",
+                 "--body", _bump_pr_body(new, subjects)).stdout.strip()
+    finally:
+        sh("git", "switch", DEFAULT_BRANCH, check=False)
+    print(f"\nPull request: {url}")
+    print("The CHANGELOG section is a draft of the commit subjects: edit it in the pull request.")
+    print("Merge it, run git pull --ff-only, then run this script again to release.")
+    return 0
+
+
+def _bump_pr_body(version: str, subjects: list[str]) -> str:
+    changes = "\n".join(f"- {subject}" for subject in subjects)
+    return (
+        f"## Goal\nPrepare the {version} release.\n\n"
+        f"## Changes\n- Version {version} and a CHANGELOG draft, from these commits:\n\n{changes}\n\n"
+        "## How to test\n- After merging, the release script runs the checks and tests the TestPyPI package.\n\n"
+        "## Related repos\n- None\n\n"
+        "## Points of attention\n- Edit the CHANGELOG draft before merging: it becomes the release notes.\n"
+    )
+
+
 # ── Checks ────────────────────────────────────────────────────────────────────
 
 
@@ -347,8 +480,10 @@ def release(root: Path, *, dry_run: bool = False, skip_tests: bool = False) -> i
     project = read_project(root)
     print(f"{project.name} {project.version}")
     if project.version in pypi_versions(PROD_HOST, project.name):
-        print("Already on PyPI, nothing to do. To release again, bump the version through a pull request.")
-        return 0
+        if dry_run:
+            print("Already on PyPI. Without --dry-run, the script asks for the new version.")
+            return 0
+        return open_bump_pr(project)
 
     state = read_state(project.version, project.name)
     failures = preflight(project, state)
@@ -413,7 +548,7 @@ def main() -> int:
     except ReleaseError as exc:
         print(f"\nStopped: {exc}", file=sys.stderr)
         return 1
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, EOFError):
         print("\nInterrupted. Run this script again to continue from where it stopped.", file=sys.stderr)
         return 130
 

@@ -457,11 +457,13 @@ pytest
 
 ## Releasing (maintainers)
 
-Bump the version and the CHANGELOG through a pull request. Once it is merged, run this at the repository root, on an up-to-date `main`:
+Run this at the repository root, on an up-to-date `main`:
 
 ```bat
 .\deploy_pip_package.bat
 ```
+
+When the current version is already on PyPI, the script first shows the latest tag and asks for the new version, then opens the pull request that bumps it, with a CHANGELOG draft from the commit subjects since that tag. Edit the draft and merge the pull request, run `git pull --ff-only`, then run the script again to release.
 
 The script checks the release (versions, CHANGELOG, dependencies, ruff, pytest), pushes the tag that uploads to TestPyPI, tests that package in a throwaway venv, then asks for confirmation before creating the GitHub release that uploads to PyPI. When a run needs an approval on GitHub, it prints the link and waits. Run it again after any failure or Ctrl+C: it continues from what is already done. `.\deploy_pip_package.bat --dry-run` only runs the checks.
 

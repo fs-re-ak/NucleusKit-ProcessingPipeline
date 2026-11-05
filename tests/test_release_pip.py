@@ -93,6 +93,8 @@ class FakeWorld:
         self.pypi = {"1.0.2"}
         self.required: set[str] = {"1.0.2"}
         self.actions: list[str] = []
+        self.tags = ["1.0", "1.1^{}", "1.0.1", "1.0.2"]
+        self.subjects = "fix(sync): one\ndocs: two\n"
         (tmp_path / "pyproject.toml").write_text(
             f'[project]\nname = "re-ak-core"\nversion = "{version}"\ndependencies = []\n', encoding="utf-8")
         package = tmp_path / "src" / "reak_core"
@@ -129,8 +131,19 @@ class FakeWorld:
                 self.pypi.add(self.version)
             case ("gh", "run", "list"):
                 out = json.dumps([{"databaseId": 1, "status": "completed", "conclusion": "success", "url": "u"}])
+            case ("git", "ls-remote", _) if cmd[3:] == ("origin",):
+                out = "".join(f"{self.HEAD}\trefs/tags/{tag}\n" for tag in self.tags)
             case ("git", "ls-remote", _):
                 out = f"{self.tag_commit}\trefs/tags/{self.version}\n" if self.tag_commit else ""
+            case ("git", "log", _):
+                out = self.subjects
+            case ("git", "switch", "-c"):
+                self.actions.append(f"branch {cmd[3]}")
+            case ("git", "commit", _):
+                self.actions.append(f"commit: {cmd[3]}")
+            case ("gh", "pr", "create"):
+                self.actions.append("pr")
+                out = "https://example.test/pr/1\n"
             case ("git", "status", _):
                 out = self.dirty
             case ("git", "rev-parse", _):
@@ -165,10 +178,53 @@ def test_answering_no_stops_before_pypi_and_resumes(tmp_path: Path, monkeypatch:
     assert world.actions == ["verify", "prompt", "release"]  # neither tests nor tag again
 
 
-def test_version_already_on_pypi_does_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_version_on_pypi_asks_for_the_new_one_and_opens_a_pr(tmp_path, monkeypatch, capsys) -> None:
     world = FakeWorld(tmp_path, monkeypatch, version="1.0.2")
+    (tmp_path / "CHANGELOG.md").write_bytes(b"# Changelog\r\n\r\n## 1.0.2\r\n\r\n- Old.\r\n")
+    world.answers = ["1.0.3"]
+    assert rp.release(tmp_path) == 0
+
+    assert "Current version: 1.0.2\n" in capsys.readouterr().out
+    branch = rp.release_branch_name("1.0.3", rp.date.today())
+    assert world.actions == ["prompt", f"branch {branch}", "commit: build: release 1.0.3", "push", "pr"]
+    assert 'version = "1.0.3"' in (tmp_path / "pyproject.toml").read_text(encoding="utf-8")
+    assert '__version__ = "1.0.3"' in (tmp_path / "src/reak_core/__init__.py").read_text(encoding="utf-8")
+    changelog = (tmp_path / "CHANGELOG.md").read_bytes().decode("utf-8")
+    assert changelog == ("# Changelog\r\n\r\n## 1.0.3\r\n\r\n- fix(sync): one\r\n- docs: two\r\n\r\n"
+                         "## 1.0.2\r\n\r\n- Old.\r\n")  # line endings kept
+    assert rp.changelog_section(changelog.replace("\r\n", "\n"), "1.0.3") == "- fix(sync): one\n- docs: two"
+
+
+@pytest.mark.parametrize("answer", ["", "1.0.2", "1.0.1", "1.0", "v1.0.3", "1.0.3a1"])
+def test_empty_or_invalid_new_version_changes_nothing(tmp_path, monkeypatch, answer) -> None:
+    world = FakeWorld(tmp_path, monkeypatch, version="1.0.2")
+    world.answers = [answer]
+    if answer:
+        with pytest.raises(rp.ReleaseError):
+            rp.release(tmp_path)
+    else:
+        assert rp.release(tmp_path) == 0
+    assert world.actions == ["prompt"]
+    assert 'version = "1.0.2"' in (tmp_path / "pyproject.toml").read_text(encoding="utf-8")
+
+
+def test_no_commits_since_the_tag_does_not_prompt(tmp_path, monkeypatch, capsys) -> None:
+    world = FakeWorld(tmp_path, monkeypatch, version="1.0.2")
+    world.subjects = ""
     assert rp.release(tmp_path) == 0
     assert world.actions == []
+    assert "nothing to release" in capsys.readouterr().out
+
+
+def test_dry_run_never_prompts(tmp_path, monkeypatch) -> None:
+    world = FakeWorld(tmp_path, monkeypatch, version="1.0.2")
+    assert rp.release(tmp_path, dry_run=True) == 0
+    assert world.actions == []
+
+
+def test_latest_version_ignores_old_style_tags() -> None:
+    assert rp.latest_version(["1.0", "1.1", "1.1^{}", "2.2.0", "2.2.10", "2.2.9"]) == "2.2.10"
+    assert rp.latest_version(["1.0"]) is None
 
 
 def test_dry_run_publishes_nothing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys) -> None:
