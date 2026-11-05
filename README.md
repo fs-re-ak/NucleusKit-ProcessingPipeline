@@ -27,6 +27,7 @@ Since version 2.0.0 the processing itself (heart dynamics, arousal, cognition, e
 - [Technical documentation](#technical-documentation)
 - [Trust and bundled models](#trust-and-bundled-models)
 - [Tests](#tests)
+- [Releasing (maintainers)](#releasing-maintainers)
 - [License](#license)
 
 ## Requirements
@@ -453,6 +454,18 @@ pytest
 ```
 
 `tests/test_open_core_references.py` checks that Nucleus-Kit gives exactly re-ak-core's outputs on re-ak-core's synthetic sessions; it needs a `re-ak-core` checkout next to this repository (or `RE_AK_CORE=<path>`) and is skipped otherwise.
+
+## Releasing (maintainers)
+
+Bump the version and the CHANGELOG through a pull request. Once it is merged, run this at the repository root, on an up-to-date `main`:
+
+```bat
+.\deploy_pip_package.bat
+```
+
+The script checks the release (versions, CHANGELOG, dependencies, ruff, pytest), pushes the tag that uploads to TestPyPI, tests that package in a throwaway venv, then asks for confirmation before creating the GitHub release that uploads to PyPI. When a run needs an approval on GitHub, it prints the link and waits. Run it again after any failure or Ctrl+C: it continues from what is already done. `.\deploy_pip_package.bat --dry-run` only runs the checks.
+
+It needs `git`, an authenticated `gh`, Python 3.11 or newer and the `dev` extra. The upload itself is done by `.github/workflows/publish.yml` with Trusted Publishing, so no token is stored.
 
 ## License
 
