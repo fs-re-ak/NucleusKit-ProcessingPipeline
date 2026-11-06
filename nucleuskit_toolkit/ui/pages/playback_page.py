@@ -51,6 +51,10 @@ from nucleuskit_toolkit.ui.plot_style import (
     style_view,
     translucent,
 )
+from nucleuskit_toolkit.ui.pages.playback_helpers import (
+    session_time_range as _session_time_range,
+    smooth_y as _smooth_y_impl,
+)
 
 _Z_NEUTRAL = -10.0
 _Z_EMOTION_BASE = 0.0
@@ -85,12 +89,6 @@ def _series_color(name: str, index: int) -> str:
     if name in EMOTION_ORDER:
         return c.emotion(name)
     return c.emotions[index + 1] if index + 1 < len(c.emotions) else c.neutral
-
-
-def _has_data(column: pd.Series) -> bool:
-    """True when the column holds at least one finite, non-zero value."""
-    values = pd.to_numeric(column, errors="coerce").to_numpy(dtype=np.float64)
-    return bool(np.any(np.isfinite(values) & (values != 0.0)))
 
 
 def _emotion_checkbox_stylesheet(hex_color: str) -> str:
@@ -705,8 +703,18 @@ class MetricsPlotWidget(QWidget):
         y_label: str = "Probability",
         y_range: tuple[float, float] | None = (0.0, 1.0),
         filled: bool = True,
+        t_session_min: float | None = None,
+        t_session_max: float | None = None,
     ) -> str | None:
-        """Load a metrics CSV (must have a Timestamp column). Returns error or None."""
+        """Load a metrics CSV (must have a Timestamp column). Returns error or None.
+
+        ``t_session_min`` / ``t_session_max`` set the X axis to the full session
+        span rather than only the span covered by this particular file.  Pass
+        them from :func:`_session_time_range` so that switching between metric
+        tabs never shrinks the timeline and so that leading/trailing rows whose
+        metric values are NULL/NaN still occupy their correct position on the
+        X axis.
+        """
         try:
             df = pd.read_csv(path)
         except Exception as e:
@@ -742,6 +750,16 @@ class MetricsPlotWidget(QWidget):
         self._t_min = float(np.nanmin(ts))
         self._t_max = float(np.nanmax(ts))
 
+        # Expand X axis to the full session span when provided.  This ensures
+        # that leading/trailing rows with NULL/NaN metric values still appear
+        # at the correct position on the timeline even though pyqtgraph's
+        # autorange would otherwise clip the view to the first/last finite Y
+        # sample.
+        if t_session_min is not None and t_session_min < self._t_min:
+            self._t_min = t_session_min
+        if t_session_max is not None and t_session_max > self._t_max:
+            self._t_max = t_session_max
+
         # Reset smoothing state for the new dataset.
         self._raw_data.clear()
         self._dt = float(np.median(np.diff(ts))) if len(ts) > 1 else 0.5
@@ -763,10 +781,10 @@ class MetricsPlotWidget(QWidget):
             plot_cols = [c for c in df.columns if c in COGNITION_COLUMNS]
         else:
             plot_cols = [c for c in df.columns if c != "Timestamp"]
-        # Only the series present in this session: drop columns with no non-zero value.
-        plot_cols = [c for c in plot_cols if _has_data(df[c])]
-        if not plot_cols:
-            return f"{filename} has no data to plot."
+        # Every column that reaches plot_cols is plotted regardless of whether
+        # its values are all-zero or all-NaN.  All-zero columns draw a flat
+        # stroke at y=0; all-NaN columns draw nothing but keep their toggle
+        # checkbox.  Do NOT add a filter here that silently drops columns.
 
         set_label(self._plot.getPlotItem(), "left", y_label)
 
@@ -810,7 +828,11 @@ class MetricsPlotWidget(QWidget):
         self._toggle_layout.addStretch(1)
 
         self._apply_x_view_limits()
-        self._plot.setXRange(self._t_min, self._t_max, padding=0.02)
+        # Disable X autorange before setXRange so pyqtgraph cannot re-trigger
+        # it on first paint and clip the view to only the finite-Y extent.
+        self._plot.getViewBox().disableAutoRange(pg.ViewBox.XAxis)
+        # padding=0 avoids fighting with maxXRange set in _apply_x_view_limits.
+        self._plot.setXRange(self._t_min, self._t_max, padding=0)
         self._plot.addItem(self._playhead)
         self.set_playhead_seconds(self._t_min)
         return None
@@ -821,15 +843,13 @@ class MetricsPlotWidget(QWidget):
 
     @staticmethod
     def _smooth_y(y_raw: np.ndarray, k: int) -> np.ndarray:
-        """Centered rolling mean, NaN-aware.  k=1 returns the array unchanged."""
-        if k <= 1:
-            return y_raw
-        return (
-            pd.Series(y_raw)
-            .rolling(k, center=True, min_periods=1)
-            .mean()
-            .to_numpy()
-        )
+        """Centered rolling mean, NaN-aware.  k=1 returns the array unchanged.
+
+        Delegates to :func:`playback_helpers.smooth_y` so that input NaN
+        positions are always NaN in the output — leading/trailing null regions
+        are never painted by the smoothing window.
+        """
+        return _smooth_y_impl(y_raw, k)
 
     def _apply_smooth(self) -> None:
         """Re-render every visible curve with the current smoothing window."""
@@ -1006,11 +1026,16 @@ class PlaybackPage(QWidget):
         self._has_video = False
         self._metrics_span_ms = 0
         self._metrics_position_ms = 0
+        # Union timestamp range from all result files; kept so _switch_metric
+        # can pass the same span to load_csv and avoid shrinking the timeline.
+        self._session_span: tuple[float, float] | None = None
         self._metrics_timer = QTimer(self)
         self._metrics_timer.setInterval(50)
         self._metrics_timer.timeout.connect(self._on_metrics_tick)
 
         QShortcut(QKeySequence.StandardKey.Delete, self, self._delete_selected_annotation)
+        QShortcut(QKeySequence(Qt.Key.Key_Left),  self, lambda: self._seek_by_ms(-500))
+        QShortcut(QKeySequence(Qt.Key.Key_Right), self, lambda: self._seek_by_ms(+500))
 
         self._refresh_tool_hint()
 
@@ -1329,11 +1354,21 @@ class PlaybackPage(QWidget):
         cfg = _METRIC_CONFIGS[preferred]
         csv_path = _metric_csv_path(session_dir, preferred)
 
+        # Compute the union timestamp range across all result files so that
+        # every metric tab shows the same X axis (full session span) even if
+        # the individual CSV covers a shorter interval, and so that leading
+        # rows with NULL metric values still appear at the correct position.
+        self._session_span = _session_time_range(session_dir)
+        t_sess_min = self._session_span[0] if self._session_span else None
+        t_sess_max = self._session_span[1] if self._session_span else None
+
         err = self._metrics_plot.load_csv(
             csv_path,
             y_label=cfg["y_label"],
             y_range=cfg.get("y_range"),
             filled=cfg.get("filled", False),
+            t_session_min=t_sess_min,
+            t_session_max=t_sess_max,
         )
         if err:
             QMessageBox.warning(self, "Playback", err)
@@ -1449,6 +1484,31 @@ class PlaybackPage(QWidget):
             self._metrics_position_ms = ms
         self._playhead_from_elapsed_ms(ms)
 
+    def _seek_by_ms(self, delta_ms: int) -> None:
+        """Seek the playback cursor by *delta_ms* milliseconds.
+
+        Called by the Left (−500 ms) and Right (+500 ms) arrow key shortcuts.
+        The step of 500 ms matches the shared 2 Hz output timebase so each
+        press advances or retreats exactly one data sample.
+        """
+        if not self._slider.isEnabled():
+            return
+        if self._has_video:
+            new_pos = max(0, min(self._player.duration(), self._player.position() + delta_ms))
+            self._player.setPosition(new_pos)
+            # _on_position_changed updates the slider and time label automatically.
+        else:
+            if self._metrics_timer.isActive():
+                self._metrics_timer.stop()
+                self._play.setText("Play")
+            new_pos = max(0, min(self._metrics_span_ms, self._metrics_position_ms + delta_ms))
+            self._metrics_position_ms = new_pos
+            self._slider.blockSignals(True)
+            self._slider.setValue(new_pos)
+            self._slider.blockSignals(False)
+            self._playhead_from_elapsed_ms(new_pos)
+            self._update_time_label(new_pos, self._metrics_span_ms)
+
     # ------------------------------------------------------------------
     # Metric selector
     # ------------------------------------------------------------------
@@ -1493,11 +1553,15 @@ class PlaybackPage(QWidget):
             return
         cfg = _METRIC_CONFIGS[key]
         path = _metric_csv_path(self._session_dir, key)
+        t_sess_min = self._session_span[0] if self._session_span else None
+        t_sess_max = self._session_span[1] if self._session_span else None
         err = self._metrics_plot.load_csv(
             path,
             y_label=cfg["y_label"],
             y_range=cfg.get("y_range"),
             filled=cfg.get("filled", False),
+            t_session_min=t_sess_min,
+            t_session_max=t_sess_max,
         )
         if err:
             QMessageBox.warning(self, "Playback", err)
