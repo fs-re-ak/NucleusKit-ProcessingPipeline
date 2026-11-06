@@ -225,9 +225,43 @@ class TestSmoothY:
         result = smooth_y(y, k=5)
         assert np.isnan(result).all()
 
-    def test_no_nan_smoothing_is_centered_mean(self):
-        """Without NaN, the output should be a standard centered rolling mean."""
-        y = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    def test_gaussian_center_weighted_more_than_neighbours(self):
+        """Gaussian kernel: the center sample must carry more weight than neighbours."""
+        # Impulse at the center — center sample should dominate after smoothing.
+        y = np.array([0.0, 0.0, 1.0, 0.0, 0.0])
         result = smooth_y(y, k=3)
-        expected = pd.Series(y).rolling(3, center=True, min_periods=1).mean().to_numpy()
-        np.testing.assert_allclose(result, expected)
+        # Center should be the maximum and exceed adjacent samples.
+        assert result[2] == pytest.approx(max(result)), "center must be the peak"
+        assert result[2] > result[1] + 1e-9, "center should exceed left neighbour"
+        assert result[2] > result[3] + 1e-9, "center should exceed right neighbour"
+
+    def test_gaussian_symmetric_input_stays_symmetric(self):
+        """A symmetric signal must remain symmetric under the (symmetric) Gaussian kernel."""
+        y = np.array([0.1, 0.4, 0.9, 0.4, 0.1])
+        result = smooth_y(y, k=5)
+        assert np.isfinite(result).all()
+        np.testing.assert_allclose(result, result[::-1], atol=1e-12)
+
+    def test_gaussian_matches_manual_weights_no_nan(self):
+        """Verify numerics against explicitly computed Gaussian weights for k=3.
+
+        The expected output mirrors smooth_y's zero-pad-then-valid-convolve
+        strategy so the comparison is exact rather than relying on numpy's
+        mode="same" (which returns max(N, kernel_len) samples, not N).
+        """
+        import math
+        k = 3
+        sigma = math.sqrt((k * k - 1) / 12.0)
+        half = math.ceil(3.0 * sigma)
+        xs = np.arange(-half, half + 1, dtype=np.float64)
+        kernel = np.exp(-0.5 * (xs / sigma) ** 2)
+        kernel /= kernel.sum()
+        y = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+        # Mirror the implementation: zero-pad by half, convolve in "valid" mode,
+        # renormalise by the weight sum (all-ones padded mask).
+        y_padded = np.pad(y, half, constant_values=0.0)
+        ones_padded = np.pad(np.ones_like(y), half, constant_values=0.0)
+        expected = np.convolve(y_padded, kernel, mode="valid")
+        expected /= np.convolve(ones_padded, kernel, mode="valid")
+        result = smooth_y(y, k=k)
+        np.testing.assert_allclose(result, expected, rtol=1e-10)
