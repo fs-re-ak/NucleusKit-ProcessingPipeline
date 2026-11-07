@@ -578,6 +578,12 @@ class MetricsPlotWidget(QWidget):
         self._dt: float = 0.5        # median timestamp step in seconds
 
         vb = self._plot.getViewBox()
+        # Zoom (wheel) and pan (middle-button drag or left-button drag) are
+        # restricted to the time axis.  pyqtgraph's wheelEvent and
+        # mouseDragEvent both check mouseEnabled before acting on each axis,
+        # so setting y=False locks both interactions to X only.
+        vb.setMouseMode(pg.ViewBox.PanMode)
+        vb.setMouseEnabled(x=True, y=False)
         vb.sigRangeChanged.connect(self._on_view_range_changed)
         self._trim_context_menu()
 
@@ -843,11 +849,11 @@ class MetricsPlotWidget(QWidget):
 
     @staticmethod
     def _smooth_y(y_raw: np.ndarray, k: int) -> np.ndarray:
-        """Centered rolling mean, NaN-aware.  k=1 returns the array unchanged.
+        """Gaussian smooth, NaN-aware.  k=1 returns the array unchanged.
 
-        Delegates to :func:`playback_helpers.smooth_y` so that input NaN
-        positions are always NaN in the output — leading/trailing null regions
-        are never painted by the smoothing window.
+        Delegates to :func:`playback_helpers.smooth_y`.  Input NaN positions
+        are always NaN in the output — leading/trailing null regions are never
+        painted by the smoothing kernel.
         """
         return _smooth_y_impl(y_raw, k)
 

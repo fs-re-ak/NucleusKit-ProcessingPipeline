@@ -99,25 +99,55 @@ def session_time_range(session_dir: str) -> tuple[float, float] | None:
 
 
 def smooth_y(y_raw: np.ndarray, k: int) -> np.ndarray:
-    """Centered rolling mean, NaN-aware.  k=1 returns the array unchanged.
+    """Gaussian-kernel smooth, NaN-aware.  k=1 returns the array unchanged.
 
-    Input NaN positions are always NaN in the output so that
-    leading/trailing/interior null regions remain as graph gaps after
-    smoothing.  The rolling window skips NaN neighbours when computing the
-    mean for finite positions (``min_periods=1``), which smooths across
-    short interior gaps without inventing values at truly null samples.
+    The kernel standard deviation is chosen so that the Gaussian has the same
+    second moment as a rectangular window of width ``k``::
+
+        sigma = sqrt((k^2 - 1) / 12)          # matches box-filter variance
+
+    Kernel support is ±3σ (rounded up), so the effective half-width grows with
+    ``k`` but the taper is smooth rather than flat.
+
+    NaN positions in the input are always NaN in the output so that
+    leading/trailing/interior null regions remain as graph gaps.  Edges and
+    samples neighbouring a gap are renormalised over the finite samples inside
+    the kernel window (equivalent to ``min_periods=1`` in a rolling mean).
     """
     if k <= 1:
         return y_raw
-    smoothed = (
-        pd.Series(y_raw)
-        .rolling(k, center=True, min_periods=1)
-        .mean()
-        .to_numpy()
-    )
-    # The centered window can pick up finite neighbours and write a value
-    # into a position that was NaN in y_raw (e.g. the leading null region
-    # of an Emotions.csv where the first few windows were invalid).
-    # Restoring NaN at those positions keeps null regions empty on the graph.
+
+    # Build the 1-D Gaussian kernel.
+    sigma = np.sqrt((k * k - 1) / 12.0)
+    if sigma < 1e-9:
+        return y_raw
+    half = int(np.ceil(3.0 * sigma))
+    xs = np.arange(-half, half + 1, dtype=np.float64)
+    kernel = np.exp(-0.5 * (xs / sigma) ** 2)
+    kernel /= kernel.sum()
+
+    # Replace NaN with 0 for convolution; track which positions are finite.
+    finite_mask = np.isfinite(y_raw).astype(np.float64)
+    y_filled = np.where(finite_mask, y_raw, 0.0)
+
+    # Pad both arrays by `half` samples so that np.convolve in "valid" mode
+    # returns exactly len(y_raw) samples.  This avoids the size mismatch that
+    # np.convolve mode="same" introduces when the kernel is longer than the
+    # signal (it returns max(N_signal, N_kernel) not N_signal).
+    y_padded = np.pad(y_filled, half, constant_values=0.0)
+    m_padded = np.pad(finite_mask, half, constant_values=0.0)
+
+    # Convolve values and the finite-sample weights separately so that edge
+    # and gap-adjacent samples are renormalised over available data.
+    conv_values = np.convolve(y_padded, kernel, mode="valid")
+    conv_weight = np.convolve(m_padded, kernel, mode="valid")
+
+    # Where weight > 0 we have at least one finite neighbour; divide to get
+    # the weighted mean.  Where weight == 0 all neighbours were NaN too.
+    with np.errstate(invalid="ignore", divide="ignore"):
+        smoothed = np.where(conv_weight > 0.0, conv_values / conv_weight, np.nan)
+
+    # Always restore NaN at positions that were NaN in the raw input so that
+    # leading/trailing null regions are never painted on the graph.
     smoothed[np.isnan(y_raw)] = np.nan
     return smoothed
