@@ -18,6 +18,7 @@ from PySide6.QtWidgets import QSizePolicy, QWidget
 _PATHS: dict[str, str] = {
     "activity": '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
     "play": '<polygon points="7 4 20 12 7 20 7 4"/>',
+    "pause": '<path d="M8 5v14M16 5v14"/>',
     "square": '<rect x="6" y="6" width="12" height="12" rx="1.5"/>',
     "settings": (
         '<circle cx="12" cy="12" r="3"/>'

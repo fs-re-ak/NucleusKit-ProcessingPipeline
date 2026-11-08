@@ -1,4 +1,4 @@
-﻿"""Session playback: optional video (rawData/video.mp4) + metrics plot (results/*.csv)."""
+"""Session playback: optional video (rawData/video.mp4) + metrics plot (results/*.csv)."""
 
 from __future__ import annotations
 
@@ -16,32 +16,39 @@ os.environ.setdefault("PYQTGRAPH_QT_LIB", "PySide6")
 import numpy as np
 import pandas as pd
 import pyqtgraph as pg
-from PySide6.QtCore import QObject, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QObject, QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QIcon, QKeySequence, QShortcut
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
     QAbstractButton,
     QAbstractItemView,
+    QApplication,
     QButtonGroup,
     QCheckBox,
     QFileDialog,
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QRadioButton,
     QSlider,
     QSplitter,
+    QStyle,
+    QStyleOptionSlider,
     QTableWidget,
     QTableWidgetItem,
+    QTextEdit,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 from reak_core.models import EMOTION_COLUMNS
 
+from nucleuskit_toolkit.ui.icons import icon
 from nucleuskit_toolkit.ui.plot_style import (
     EMOTION_ORDER,
     pen,
@@ -51,6 +58,7 @@ from nucleuskit_toolkit.ui.plot_style import (
     style_view,
     translucent,
 )
+from nucleuskit_toolkit.ui.theme import current_palette
 from nucleuskit_toolkit.ui.pages.playback_helpers import (
     session_time_range as _session_time_range,
     smooth_y as _smooth_y_impl,
@@ -216,9 +224,35 @@ def _clamp_t(t: float, t_min: float, t_max: float) -> float:
 
 
 def _fmt_ms(ms: int) -> str:
-    """Format milliseconds as M:SS (no zero-padding for minutes)."""
-    s = max(0, ms) // 1000
-    return f"{s // 60}:{s % 60:02d}"
+    """Format milliseconds as M:SS.mmm (no zero-padding for minutes)."""
+    ms = max(0, int(ms))
+    minutes, rem = divmod(ms, 60_000)
+    seconds, millis = divmod(rem, 1000)
+    return f"{minutes}:{seconds:02d}.{millis:03d}"
+
+
+class _SeekSlider(QSlider):
+    """Horizontal slider that jumps to a click on the groove, then still drags."""
+
+    def mousePressEvent(self, event) -> None:  # type: ignore[no-untyped-def]
+        if event.button() == Qt.MouseButton.LeftButton and self.orientation() == Qt.Orientation.Horizontal:
+            value = self._value_at(int(event.position().x()))
+            self.setValue(value)
+            self.sliderMoved.emit(value)
+        super().mousePressEvent(event)
+
+    def _value_at(self, x: int) -> int:
+        opt = QStyleOptionSlider()
+        self.initStyleOption(opt)
+        groove = self.style().subControlRect(
+            QStyle.ComplexControl.CC_Slider, opt, QStyle.SubControl.SC_SliderGroove, self
+        )
+        handle = self.style().subControlRect(
+            QStyle.ComplexControl.CC_Slider, opt, QStyle.SubControl.SC_SliderHandle, self
+        )
+        span = max(1, groove.width() - handle.width())
+        pos = int(x - groove.x() - handle.width() / 2)
+        return QStyle.sliderValueFromPosition(self.minimum(), self.maximum(), pos, span, opt.upsideDown)
 
 
 @dataclass
@@ -326,12 +360,13 @@ class PlaybackAnnotationManager(QObject):
     def _bounds(self) -> tuple[float, float]:
         return self._get_time_bounds()
 
-    def handle_scene_click(self, ev) -> None:
+    def handle_scene_click(self, ev) -> bool:
+        """Place an event or finish a zone. Returns True when a placement is complete."""
         if ev.button() != Qt.MouseButton.LeftButton:
-            return
+            return False
         pos = ev.scenePos()
         if not self._plot.sceneBoundingRect().contains(pos):
-            return
+            return False
         vb = self._plot.getViewBox()
         t = float(vb.mapSceneToView(pos).x())
         t_min, t_max = self._bounds()
@@ -339,17 +374,20 @@ class PlaybackAnnotationManager(QObject):
 
         if self._tool_mode == "event":
             self._add_point(t)
-        elif self._tool_mode == "zone":
+            return True
+        if self._tool_mode == "zone":
             if self._zone_pending_t0 is None:
                 self._zone_pending_t0 = t
-            else:
-                t0, t1 = self._zone_pending_t0, t
-                self._zone_pending_t0 = None
-                if abs(t1 - t0) < 1e-6:
-                    return
-                if t0 > t1:
-                    t0, t1 = t1, t0
-                self._add_zone(t0, t1)
+                return False
+            t0, t1 = self._zone_pending_t0, t
+            self._zone_pending_t0 = None
+            if abs(t1 - t0) < 1e-6:
+                return False
+            if t0 > t1:
+                t0, t1 = t1, t0
+            self._add_zone(t0, t1)
+            return True
+        return False
 
     def _add_point(self, t: float) -> None:
         aid = str(uuid.uuid4())
@@ -914,8 +952,8 @@ class PlaybackPage(QWidget):
         self._table_refreshing = False
 
         self._tool_nav = QRadioButton("Navigate")
-        self._tool_event = QRadioButton("Event")
-        self._tool_zone = QRadioButton("Zone")
+        self._tool_event = QRadioButton("Add Event")
+        self._tool_zone = QRadioButton("Add Zone")
         self._tool_nav.setChecked(True)
         self._tool_group = QButtonGroup(self)
         self._tool_group.addButton(self._tool_nav)
@@ -935,12 +973,21 @@ class PlaybackPage(QWidget):
         self._del_ann.setProperty("secondary", True)
         self._del_ann.clicked.connect(self._delete_selected_annotation)
 
+        self._ann_toggle = QToolButton()
+        self._ann_toggle.setText("Annotations")
+        self._ann_toggle.setCheckable(True)
+        self._ann_toggle.setChecked(True)
+        self._ann_toggle.setToolTip("Hide the annotations table")
+        self._ann_toggle.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._ann_toggle.toggled.connect(self._set_annotations_visible)
+
         tool_row = QHBoxLayout()
         tool_row.addWidget(QLabel("Tool:"))
         tool_row.addWidget(self._tool_nav)
         tool_row.addWidget(self._tool_event)
         tool_row.addWidget(self._tool_zone)
         tool_row.addWidget(self._zone_hint, stretch=1)
+        tool_row.addWidget(self._ann_toggle)
         tool_row.addWidget(self._del_ann)
         tool_row.addWidget(self._save_ann)
 
@@ -955,8 +1002,8 @@ class PlaybackPage(QWidget):
         hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
         self._ann_table.setColumnWidth(0, 36)
 
-        ann_panel = QWidget()
-        ann_layout = QVBoxLayout(ann_panel)
+        self._ann_panel = QWidget()
+        ann_layout = QVBoxLayout(self._ann_panel)
         ann_layout.setContentsMargins(0, 0, 0, 0)
         ann_layout.addWidget(QLabel("Annotations"))
         ann_layout.addWidget(self._ann_table, stretch=1)
@@ -968,21 +1015,21 @@ class PlaybackPage(QWidget):
 
         plot_split = QSplitter(Qt.Orientation.Horizontal)
         plot_split.addWidget(self._metrics_plot)
-        plot_split.addWidget(ann_panel)
+        plot_split.addWidget(self._ann_panel)
         plot_split.setStretchFactor(0, 3)
         plot_split.setStretchFactor(1, 1)
 
-        self._slider = QSlider(Qt.Orientation.Horizontal)
+        self._slider = _SeekSlider(Qt.Orientation.Horizontal)
         self._slider.setEnabled(False)
         self._slider.setRange(0, 0)
         self._slider.sliderMoved.connect(self._on_slider_moved)
         self._slider.sliderReleased.connect(self._on_slider_released)
 
-        self._time_label = QLabel("0:00 / 0:00")
+        self._time_label = QLabel("0:00.000 / 0:00.000")
         self._time_label.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         # QSS does not support font-variant-numeric; monospace gives stable time digits without Qt warnings.
         self._time_label.setStyleSheet(
-            'font-family: Consolas, "DejaVu Sans Mono", "Courier New", monospace; min-width: 90px;'
+            'font-family: Consolas, "DejaVu Sans Mono", "Courier New", monospace; min-width: 200px;'
         )
 
         self._playback_bottom = QWidget()
@@ -997,6 +1044,20 @@ class PlaybackPage(QWidget):
         slider_row.addWidget(self._time_label)
         bottom_layout.addLayout(slider_row)
 
+        self._play = QToolButton()
+        self._play.setFixedSize(32, 32)
+        self._play.setIconSize(QSize(16, 16))
+        self._play.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._play.setEnabled(False)
+        self._play.setToolTip("Play (Space)")
+        self._play.clicked.connect(self._toggle_play)
+        self._set_play_icon(False)
+        control_row = QHBoxLayout()
+        control_row.setContentsMargins(0, 0, 0, 0)
+        control_row.addWidget(self._play)
+        control_row.addStretch(1)
+        bottom_layout.addLayout(control_row)
+
         self._splitter = QSplitter(Qt.Orientation.Vertical)
         self._splitter.addWidget(self._video)
         self._splitter.addWidget(self._playback_bottom)
@@ -1006,10 +1067,6 @@ class PlaybackPage(QWidget):
         self._open = QPushButton("Open session…")
         self._open.clicked.connect(self._browse_session)
 
-        self._play = QPushButton("Play")
-        self._play.setEnabled(False)
-        self._play.clicked.connect(self._toggle_play)
-
         self._path_label = QLabel("")
         self._path_label.setProperty("role", "hint")
         self._path_label.setWordWrap(True)
@@ -1017,7 +1074,6 @@ class PlaybackPage(QWidget):
         top = QHBoxLayout()
         top.addStretch(1)
         top.addWidget(self._open)
-        top.addWidget(self._play)
 
         body = QVBoxLayout(self)
         body.setContentsMargins(0, 0, 0, 0)
@@ -1042,6 +1098,9 @@ class PlaybackPage(QWidget):
         QShortcut(QKeySequence.StandardKey.Delete, self, self._delete_selected_annotation)
         QShortcut(QKeySequence(Qt.Key.Key_Left),  self, lambda: self._seek_by_ms(-500))
         QShortcut(QKeySequence(Qt.Key.Key_Right), self, lambda: self._seek_by_ms(+500))
+        space = QShortcut(QKeySequence(Qt.Key.Key_Space), self)
+        space.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        space.activated.connect(self._on_space)
 
         self._refresh_tool_hint()
 
@@ -1049,6 +1108,33 @@ class PlaybackPage(QWidget):
         """Called by the main window after a theme change."""
         self._metrics_plot.refresh_theme()
         self._ann_mgr.refresh_theme()
+        self._set_play_icon(self._is_playing())
+
+    def _set_play_icon(self, playing: bool) -> None:
+        self._play.setIcon(icon("pause" if playing else "play", current_palette().text, 16))
+        self._play.setToolTip("Pause (Space)" if playing else "Play (Space)")
+
+    def _is_playing(self) -> bool:
+        if self._has_video:
+            return self._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState
+        return self._metrics_timer.isActive()
+
+    def _on_space(self) -> None:
+        """Play or pause from anywhere on the page, except while typing a label."""
+        focus = QApplication.focusWidget()
+        if isinstance(focus, (QLineEdit, QTextEdit, QPlainTextEdit)):
+            return
+        if self._ann_table.state() == QAbstractItemView.State.EditingState:
+            return
+        if not self._play.isEnabled():
+            return
+        self._toggle_play()
+
+    def _set_annotations_visible(self, visible: bool) -> None:
+        self._ann_panel.setVisible(visible)
+        self._ann_toggle.setToolTip(
+            "Hide the annotations table" if visible else "Show the annotations table"
+        )
 
     def can_leave(self) -> bool:
         """Called by the main window before another page is shown: offers to save edited annotations."""
@@ -1075,10 +1161,24 @@ class PlaybackPage(QWidget):
         self._zone_hint.setText(h or "")
 
     def _on_plot_scene_clicked(self, ev) -> None:
-        if self._tool_nav.isChecked():
+        if ev.button() != Qt.MouseButton.LeftButton:
             return
-        self._ann_mgr.handle_scene_click(ev)
+        if self._tool_nav.isChecked():
+            self._seek_from_scene_click(ev)
+            return
+        if self._ann_mgr.handle_scene_click(ev):
+            self._tool_nav.setChecked(True)
         self._refresh_tool_hint()
+
+    def _seek_from_scene_click(self, ev) -> None:
+        plot = self._metrics_plot.plot_widget()
+        pos = ev.scenePos()
+        if not plot.sceneBoundingRect().contains(pos):
+            return
+        t = float(plot.getViewBox().mapSceneToView(pos).x())
+        t_min, t_max = self._metrics_plot.time_range()
+        t = _clamp_t(t, t_min, t_max)
+        self._seek_to_ms(int(round((t - t_min) * 1000.0)))
 
     def _on_annotations_changed(self) -> None:
         self._refresh_annotation_table()
@@ -1337,7 +1437,7 @@ class PlaybackPage(QWidget):
         self._update_time_label(self._metrics_position_ms, self._metrics_span_ms)
         if self._metrics_position_ms >= self._metrics_span_ms:
             self._metrics_timer.stop()
-            self._play.setText("Play")
+            self._set_play_icon(False)
 
     def _browse_session(self) -> None:
         path = QFileDialog.getExistingDirectory(self, "Select session folder")
@@ -1420,7 +1520,7 @@ class PlaybackPage(QWidget):
 
         if not self._has_video:
             self._playhead_from_elapsed_ms(0)
-            self._play.setText("Play")
+            self._set_play_icon(False)
 
     def _toggle_play(self) -> None:
         if self._has_video:
@@ -1431,7 +1531,7 @@ class PlaybackPage(QWidget):
             return
         if self._metrics_timer.isActive():
             self._metrics_timer.stop()
-            self._play.setText("Play")
+            self._set_play_icon(False)
         else:
             if self._metrics_position_ms >= self._metrics_span_ms:
                 self._metrics_position_ms = 0
@@ -1440,15 +1540,15 @@ class PlaybackPage(QWidget):
                 self._slider.blockSignals(False)
                 self._playhead_from_elapsed_ms(0)
             self._metrics_timer.start()
-            self._play.setText("Pause")
+            self._set_play_icon(True)
 
     def _on_playback_state_changed(self) -> None:
         if not self._has_video:
             return
         if self._player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:
-            self._play.setText("Pause")
+            self._set_play_icon(True)
         else:
-            self._play.setText("Play")
+            self._set_play_icon(False)
 
     def _on_duration_changed(self, duration_ms: int) -> None:
         if not self._has_video:
@@ -1474,7 +1574,7 @@ class PlaybackPage(QWidget):
         else:
             if self._metrics_timer.isActive():
                 self._metrics_timer.stop()
-                self._play.setText("Play")
+                self._set_play_icon(False)
             self._metrics_position_ms = position_ms
             duration_ms = self._metrics_span_ms
         self._playhead_from_elapsed_ms(position_ms)
@@ -1490,6 +1590,25 @@ class PlaybackPage(QWidget):
             self._metrics_position_ms = ms
         self._playhead_from_elapsed_ms(ms)
 
+    def _seek_to_ms(self, position_ms: int) -> None:
+        """Move the playhead to an absolute time. Metrics playback pauses."""
+        if not self._slider.isEnabled():
+            return
+        if self._has_video:
+            duration = max(0, self._player.duration())
+            self._player.setPosition(max(0, min(duration, position_ms)))
+            return
+        if self._metrics_timer.isActive():
+            self._metrics_timer.stop()
+            self._set_play_icon(False)
+        position_ms = max(0, min(self._metrics_span_ms, position_ms))
+        self._metrics_position_ms = position_ms
+        self._slider.blockSignals(True)
+        self._slider.setValue(position_ms)
+        self._slider.blockSignals(False)
+        self._playhead_from_elapsed_ms(position_ms)
+        self._update_time_label(position_ms, self._metrics_span_ms)
+
     def _seek_by_ms(self, delta_ms: int) -> None:
         """Seek the playback cursor by *delta_ms* milliseconds.
 
@@ -1499,21 +1618,8 @@ class PlaybackPage(QWidget):
         """
         if not self._slider.isEnabled():
             return
-        if self._has_video:
-            new_pos = max(0, min(self._player.duration(), self._player.position() + delta_ms))
-            self._player.setPosition(new_pos)
-            # _on_position_changed updates the slider and time label automatically.
-        else:
-            if self._metrics_timer.isActive():
-                self._metrics_timer.stop()
-                self._play.setText("Play")
-            new_pos = max(0, min(self._metrics_span_ms, self._metrics_position_ms + delta_ms))
-            self._metrics_position_ms = new_pos
-            self._slider.blockSignals(True)
-            self._slider.setValue(new_pos)
-            self._slider.blockSignals(False)
-            self._playhead_from_elapsed_ms(new_pos)
-            self._update_time_label(new_pos, self._metrics_span_ms)
+        current = self._player.position() if self._has_video else self._metrics_position_ms
+        self._seek_to_ms(current + delta_ms)
 
     # ------------------------------------------------------------------
     # Metric selector
@@ -1591,4 +1697,4 @@ class PlaybackPage(QWidget):
             self._slider.setRange(0, max(0, self._metrics_span_ms))
             self._slider.blockSignals(False)
             self._playhead_from_elapsed_ms(0)
-            self._play.setText("Play")
+            self._set_play_icon(False)
