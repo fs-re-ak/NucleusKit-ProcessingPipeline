@@ -39,6 +39,11 @@ def main(argv: list[str] | None = None) -> int:
             f"(default: {DEFAULT_MODEL}). Available: {', '.join(available_models())}."
         ),
     )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Recompute and replace existing features and results (other files in those folders are kept).",
+    )
     ns = parser.parse_args(argv)
 
     if ns.session:
@@ -46,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
         from nucleuskit_toolkit.session_job import session_job_from_folder
 
         job = session_job_from_folder(ns.session, pov_config_json=ns.config)
-        pipe = NucleusKitProcessingToolkit(None, emotion_model=ns.emotion_model)
+        pipe = NucleusKitProcessingToolkit(None, emotion_model=ns.emotion_model, force=ns.force)
         pipe.processSession(job)
         return 0
 

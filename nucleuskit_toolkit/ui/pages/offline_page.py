@@ -71,6 +71,7 @@ class PipelineWorker(QObject):
         skip_video_rotation: bool = False,
         apply_nlms: bool = True,
         emotion_model: str | None = None,
+        force: bool = False,
         cancel: threading.Event | None = None,
     ) -> None:
         super().__init__()
@@ -80,6 +81,7 @@ class PipelineWorker(QObject):
         self._skip_video_rotation = skip_video_rotation
         self._apply_nlms = apply_nlms
         self._emotion_model = emotion_model
+        self._force = force
         self._cancel = cancel
 
     @Slot()
@@ -101,6 +103,7 @@ class PipelineWorker(QObject):
                 skip_video_rotation=self._skip_video_rotation,
                 apply_nlms=self._apply_nlms,
                 emotion_model=self._emotion_model,
+                force=self._force,
                 cancel=self._cancel,
             )
             pipe.processSession(job)
@@ -131,6 +134,7 @@ class BatchPipelineWorker(QObject):
         skip_video_rotation: bool = False,
         apply_nlms: bool = True,
         emotion_model: str | None = None,
+        force: bool = False,
         cancel: threading.Event | None = None,
     ) -> None:
         super().__init__()
@@ -139,6 +143,7 @@ class BatchPipelineWorker(QObject):
         self._skip_video_rotation = skip_video_rotation
         self._apply_nlms = apply_nlms
         self._emotion_model = emotion_model
+        self._force = force
         self._cancel = cancel
 
     @Slot()
@@ -168,6 +173,7 @@ class BatchPipelineWorker(QObject):
                         skip_video_rotation=self._skip_video_rotation,
                         apply_nlms=self._apply_nlms,
                         emotion_model=self._emotion_model,
+                        force=self._force,
                         cancel=self._cancel,
                     )
                     pipe.processSession(job)
@@ -436,6 +442,10 @@ class OfflinePage(QWidget):
         self._opt_nlms = OptionRow(
             "Apply adaptive NLMS decorrelation (EEG channels only)",
             "Improve EEG signal decorrelation using adaptive NLMS. Emotions (fEMG) are not affected.", True)
+        self._opt_force = OptionRow(
+            "Recompute existing features and results",
+            "Replace pipeline output files that already exist. Other files in features/ and results/ "
+            "(including playback annotations and custom exports) are kept.", False)
         self._opt_skip_rotation.check.setToolTip(
             "When checked, the 180° rotation of rawData/video.mp4 is skipped entirely,\n"
             "even if it has not been applied yet.")
@@ -443,9 +453,16 @@ class OfflinePage(QWidget):
             "Apply the causal NLMS adaptive regression filter to the raw EEG before the cognition step.\n"
             "For each channel, the other channels act as predictors to remove common-mode\n"
             "cross-channel contamination. The emotion (fEMG) features never use it.")
+        self._opt_force.check.setToolTip(
+            "Force all pipeline steps to recompute even when their outputs already exist.\n"
+            "Use this to refresh results after a code update or parameter change.\n"
+            "Files not produced by the pipeline (e.g. playback annotations, custom exports)\n"
+            "are never touched.")
         card.body.addWidget(self._opt_skip_rotation)
         card.body.addWidget(Divider())
         card.body.addWidget(self._opt_nlms)
+        card.body.addWidget(Divider())
+        card.body.addWidget(self._opt_force)
         card.body.addWidget(Divider())
 
         self._emotion_model = QComboBox()
@@ -622,7 +639,7 @@ class OfflinePage(QWidget):
     def _set_processing(self, running: bool) -> None:
         self._running = running
         # Not the whole options card: it holds the Run / Cancel button.
-        for widget in (self._input_card, self._opt_skip_rotation, self._opt_nlms, self._emotion_model, self._clear):
+        for widget in (self._input_card, self._opt_skip_rotation, self._opt_nlms, self._opt_force, self._emotion_model, self._clear):
             widget.setEnabled(not running)
         self._run.set_mode(self._run_mode())
         if not running:
@@ -642,21 +659,24 @@ class OfflinePage(QWidget):
         self._cancel.clear()
         skip_rot = self._opt_skip_rotation.check.isChecked()
         apply_nlms = self._opt_nlms.check.isChecked()
+        force = self._opt_force.check.isChecked()
         emotion_model = self._emotion_model.currentData()
         if isinstance(self._input, DatasetInfo):
-            self._run_dataset(skip_rot, apply_nlms, emotion_model)
+            self._run_dataset(skip_rot, apply_nlms, emotion_model, force)
         else:
-            self._run_single(skip_rot, apply_nlms, emotion_model)
+            self._run_single(skip_rot, apply_nlms, emotion_model, force)
 
-    def _log_options(self, skip_rot: bool, apply_nlms: bool, emotion_model: str | None) -> None:
+    def _log_options(self, skip_rot: bool, apply_nlms: bool, emotion_model: str | None, force: bool = False) -> None:
         if skip_rot:
             self._insert_log("  (video rotation skipped by user request)\n")
         if not apply_nlms:
             self._insert_log("  (NLMS adaptive decorrelation disabled by user request)\n")
+        if force:
+            self._insert_log("  (force recompute: existing features and results will be replaced)\n")
         if emotion_model:
             self._insert_log(f"  (emotion model: {self._model_labels.get(emotion_model, emotion_model)})\n")
 
-    def _run_single(self, skip_rot: bool, apply_nlms: bool, emotion_model: str | None) -> None:
+    def _run_single(self, skip_rot: bool, apply_nlms: bool, emotion_model: str | None, force: bool = False) -> None:
         folder = self._path.text().strip()
         err = session_preflight(folder)
         if err:
@@ -664,17 +684,18 @@ class OfflinePage(QWidget):
             return
         self._set_processing(True)
         self._insert_log(f"\n--- Starting run: {folder!r} ---\n")
-        self._log_options(skip_rot, apply_nlms, emotion_model)
+        self._log_options(skip_rot, apply_nlms, emotion_model, force)
         worker = PipelineWorker(
             folder, None, self._log_queue,
             skip_video_rotation=skip_rot,
             apply_nlms=apply_nlms,
             emotion_model=emotion_model,
+            force=force,
             cancel=self._cancel,
         )
         self._start_worker(QThread(), worker)
 
-    def _run_dataset(self, skip_rot: bool, apply_nlms: bool, emotion_model: str | None) -> None:
+    def _run_dataset(self, skip_rot: bool, apply_nlms: bool, emotion_model: str | None, force: bool = False) -> None:
         folder = self._path.text().strip()
         sessions, err = dataset_preflight(folder)
         if err:
@@ -692,12 +713,13 @@ class OfflinePage(QWidget):
                 return
         self._set_processing(True)
         self._insert_log(f"\n--- Starting dataset run: {folder!r} ({n} sessions) ---\n")
-        self._log_options(skip_rot, apply_nlms, emotion_model)
+        self._log_options(skip_rot, apply_nlms, emotion_model, force)
         worker = BatchPipelineWorker(
             sessions, self._log_queue,
             skip_video_rotation=skip_rot,
             apply_nlms=apply_nlms,
             emotion_model=emotion_model,
+            force=force,
             cancel=self._cancel,
         )
         worker.session_start.connect(lambda text: self._insert_log(f"\n--- Session {text} ---\n"))

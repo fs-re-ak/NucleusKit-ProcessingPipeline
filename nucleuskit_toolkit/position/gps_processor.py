@@ -22,7 +22,7 @@ _GPS_FILENAMES = ["gps.csv", "gps.tmp"]
 _GRID_STEP_S   = 0.5   # shared 2 Hz / 0.5 s pipeline timebase
 
 
-def processGPS(recpath):
+def processGPS(recpath, *, force: bool = False):
     """
     Process GPS tracking data.
 
@@ -32,11 +32,12 @@ def processGPS(recpath):
 
     Args:
         recpath: Path to the recording directory
+        force:   Recompute even when results/gpsDf.csv already exists.
     """
     printInfo(f"{GPS_HDR}Processing GPS data")
 
     out_path = os.path.join(recpath, "results", "gpsDf.csv")
-    if os.path.exists(out_path):
+    if not force and os.path.exists(out_path):
         printInfo(f"{GPS_HDR}GPS already processed, using cached results")
         return
 
