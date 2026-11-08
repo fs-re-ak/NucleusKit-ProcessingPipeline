@@ -17,7 +17,6 @@ from reak_core.pipeline import FunctionStep, Pipeline, RunContext, StepResult
 from nucleuskit_toolkit.camera import convertPOVMovieClip, ensure_session_video_rotated_180
 from nucleuskit_toolkit.config import resolve_pov_settings
 from nucleuskit_toolkit.logging_utils import printError, printInfo, printWarning
-from nucleuskit_toolkit.position import processGPS
 
 
 class BasePipeline(ABC):
@@ -65,6 +64,17 @@ def _local_step(name: str, fn) -> FunctionStep:
     return FunctionStep(name, run)
 
 
+def _gps_step() -> FunctionStep:
+    """GPS step: passes ``force`` from the run context so cached results are replaced when requested."""
+
+    def run(session: Session, context: RunContext) -> dict:
+        from nucleuskit_toolkit.position import processGPS
+        processGPS(session.root, force=context.force)
+        return {}
+
+    return FunctionStep("gps", run)
+
+
 class _LoggedStep:
     """Prints the Nucleus-Kit progress line before running the wrapped step.
 
@@ -102,13 +112,14 @@ def build_pipeline(
     skip_video_rotation: bool = False,
     apply_nlms: bool = True,
     emotion_model: str | None = None,
+    force: bool = False,
     cancel: threading.Event | None = None,
 ) -> Pipeline:
     """re-ak-core's default pipeline with the Nucleus-Kit local steps, in Nucleus-Kit's order."""
-    pipeline = Pipeline.default(emotion_model=emotion_model, apply_nlms=apply_nlms)
+    pipeline = Pipeline.default(emotion_model=emotion_model, apply_nlms=apply_nlms, force=force)
     if not skip_video_rotation:
         pipeline.with_step(_local_step("video_rotation", ensure_session_video_rotated_180), after="prepare")
-    pipeline.with_step(_local_step("gps", processGPS))
+    pipeline.with_step(_gps_step())
     pipeline.steps = [_LoggedStep(step, cancel) for step in pipeline.steps]
     if cancel is not None:
         pipeline.exporters = [_CancellableExporter(exporter, cancel) for exporter in pipeline.exporters]
@@ -127,6 +138,7 @@ class NucleusKitProcessingToolkit(BasePipeline):
         skip_video_rotation: bool = False,
         apply_nlms: bool = True,
         emotion_model: str | None = None,
+        force: bool = False,
         cancel: threading.Event | None = None,
     ):
         super().__init__(configuration)
@@ -135,6 +147,7 @@ class NucleusKitProcessingToolkit(BasePipeline):
         self._skip_video_rotation = skip_video_rotation
         self._apply_nlms = apply_nlms
         self._emotion_model = emotion_model
+        self._force = force
         self._cancel = cancel
 
         if configuration is None:
@@ -190,5 +203,6 @@ class NucleusKitProcessingToolkit(BasePipeline):
             skip_video_rotation=self._skip_video_rotation,
             apply_nlms=self._apply_nlms,
             emotion_model=self._emotion_model,
+            force=self._force,
             cancel=self._cancel,
         )
