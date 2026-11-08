@@ -350,6 +350,7 @@ class MainWindow(QMainWindow):
     def show_page(self, key: str) -> None:
         if key == self._current and key in self._pages:
             self._sidebar.set_current(PAGES[key].nav or key)
+            self._claim_page_focus(key)
             return
         current = self._pages.get(self._current)
         can_leave = getattr(current, "can_leave", None)
@@ -364,6 +365,7 @@ class MainWindow(QMainWindow):
         self._current = key
         if key in self._pages:
             self._stack.setCurrentWidget(self._pages[key])
+            self._claim_page_focus(key)
             return
         self._pending = key
         self._loading.show_for(spec.title)
@@ -386,6 +388,13 @@ class MainWindow(QMainWindow):
         if self._pending == key:
             self._loading.spinner.stop()
             self._stack.setCurrentWidget(page)
+            self._claim_page_focus(key)
+
+    def _claim_page_focus(self, key: str) -> None:
+        page = self._pages.get(key)
+        claim = getattr(page, "claim_keyboard_focus", None)
+        if callable(claim):
+            claim()
 
     def _connect_page(self, key: str, page: QWidget) -> None:
         if key == "tools":
