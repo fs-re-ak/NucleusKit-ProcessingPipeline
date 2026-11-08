@@ -48,6 +48,19 @@ _PATHS: dict[str, str] = {
         '<path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/>'
         '<path d="M5.5 6l1 14a2 2 0 0 0 2 2h7a2 2 0 0 0 2-2l1-14M10 11v6M14 11v6"/>'
     ),
+    "grip": (
+        '<circle cx="9" cy="6" r="1.2" fill="currentColor"/>'
+        '<circle cx="9" cy="12" r="1.2" fill="currentColor"/>'
+        '<circle cx="9" cy="18" r="1.2" fill="currentColor"/>'
+        '<circle cx="15" cy="6" r="1.2" fill="currentColor"/>'
+        '<circle cx="15" cy="12" r="1.2" fill="currentColor"/>'
+        '<circle cx="15" cy="18" r="1.2" fill="currentColor"/>'
+    ),
+    "save": (
+        '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>'
+        '<path d="M17 21v-8H7v8M7 3v5h8"/>'
+    ),
+    "panel": '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/>',
     "radio": (
         '<circle cx="12" cy="12" r="2"/><path d="M16.2 7.8a6 6 0 0 1 0 8.4M7.8 16.2a6 6 0 0 1 0-8.4"/>'
         '<path d="M19.1 4.9a10 10 0 0 1 0 14.2M4.9 19.1a10 10 0 0 1 0-14.2"/>'

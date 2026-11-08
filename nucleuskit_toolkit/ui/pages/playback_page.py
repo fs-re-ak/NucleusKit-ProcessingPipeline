@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 import pyqtgraph as pg
 from PySide6.QtCore import QObject, QSize, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QIcon, QKeySequence, QShortcut
+from PySide6.QtGui import QIcon, QKeySequence, QPainter, QPen, QShortcut
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
 from PySide6.QtWidgets import (
@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QCheckBox,
     QFileDialog,
+    QFrame,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -35,6 +36,7 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QPushButton,
     QRadioButton,
+    QSizePolicy,
     QSlider,
     QSplitter,
     QStyle,
@@ -229,6 +231,34 @@ def _fmt_ms(ms: int) -> str:
     minutes, rem = divmod(ms, 60_000)
     seconds, millis = divmod(rem, 1000)
     return f"{minutes}:{seconds:02d}.{millis:03d}"
+
+
+# Annotation table columns. End and id stay in the model so zone edits still work.
+_COL_LABEL = 0
+_COL_TYPE = 1
+_COL_START = 2
+_COL_END = 3
+_COL_ID = 4
+
+
+class _VerticalLabel(QWidget):
+    """Word drawn upward, for the collapsed annotation rail."""
+
+    def __init__(self, text: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._text = text
+
+    def sizeHint(self) -> QSize:  # type: ignore[no-untyped-def]
+        advance = self.fontMetrics().horizontalAdvance(self._text)
+        return QSize(self.fontMetrics().height() + 8, advance + 16)
+
+    def paintEvent(self, event) -> None:  # type: ignore[no-untyped-def]
+        painter = QPainter(self)
+        painter.setPen(QPen(self.palette().windowText().color()))
+        painter.translate(0, self.height())
+        painter.rotate(-90)
+        painter.drawText(8, self.width() - 6, self._text)
+        painter.end()
 
 
 class _SeekSlider(QSlider):
@@ -480,9 +510,9 @@ class PlaybackAnnotationManager(QObject):
         """Rows: ann_id, type, label, start, end, visible."""
         rows: list[tuple[str, str, str, str, str, bool]] = []
         for aid, p in sorted(self._points.items(), key=lambda kv: kv[1].t):
-            rows.append((aid, "Event", p.label, f"{p.t:.6g}", "", p.visible))
+            rows.append((aid, "Event", p.label, f"{p.t:.3f}", "", p.visible))
         for aid, z in sorted(self._zones.items(), key=lambda kv: kv[1].t0):
-            rows.append((aid, "Zone", z.label, f"{z.t0:.6g}", f"{z.t1:.6g}", z.visible))
+            rows.append((aid, "Zone", z.label, f"{z.t0:.3f}", f"{z.t1:.3f}", z.visible))
         return rows
 
     def set_label(self, ann_id: str, label: str) -> None:
@@ -924,6 +954,9 @@ class MetricsPlotWidget(QWidget):
 class PlaybackPage(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        # The page itself must be able to hold keyboard focus so Space works
+        # as soon as the page is shown, before any control is clicked.
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
         self._player = QMediaPlayer(self)
         self._audio = QAudioOutput(self)
@@ -964,22 +997,37 @@ class PlaybackPage(QWidget):
         self._zone_hint = QLabel("")
         self._zone_hint.setProperty("role", "hint")
 
-        self._save_ann = QPushButton("Save annotations")
+        self._save_ann = QPushButton("Save")
         self._save_ann.setEnabled(False)
+        self._save_ann.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._save_ann.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._save_ann.setToolTip("Save annotations to file")
         self._save_ann.clicked.connect(self._save_annotations_file)
 
-        self._del_ann = QPushButton("Delete selected")
+        self._del_ann = QToolButton()
+        self._del_ann.setAutoRaise(True)
         self._del_ann.setEnabled(False)
-        self._del_ann.setProperty("secondary", True)
+        self._del_ann.setFixedSize(28, 28)
+        self._del_ann.setIconSize(QSize(16, 16))
+        self._del_ann.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._del_ann.setToolTip("Delete the selected annotation")
         self._del_ann.clicked.connect(self._delete_selected_annotation)
 
-        self._ann_toggle = QToolButton()
-        self._ann_toggle.setText("Annotations")
-        self._ann_toggle.setCheckable(True)
-        self._ann_toggle.setChecked(True)
-        self._ann_toggle.setToolTip("Hide the annotations table")
-        self._ann_toggle.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._ann_toggle.toggled.connect(self._set_annotations_visible)
+        self._ann_hide = QToolButton()
+        self._ann_hide.setAutoRaise(True)
+        self._ann_hide.setFixedSize(28, 28)
+        self._ann_hide.setIconSize(QSize(16, 16))
+        self._ann_hide.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._ann_hide.setToolTip("Hide annotation table")
+        self._ann_hide.clicked.connect(lambda: self._set_annotations_visible(False))
+
+        self._ann_show = QToolButton()
+        self._ann_show.setAutoRaise(True)
+        self._ann_show.setFixedSize(28, 28)
+        self._ann_show.setIconSize(QSize(16, 16))
+        self._ann_show.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._ann_show.setToolTip("Show annotation table")
+        self._ann_show.clicked.connect(lambda: self._set_annotations_visible(True))
 
         tool_row = QHBoxLayout()
         tool_row.addWidget(QLabel("Tool:"))
@@ -987,37 +1035,105 @@ class PlaybackPage(QWidget):
         tool_row.addWidget(self._tool_event)
         tool_row.addWidget(self._tool_zone)
         tool_row.addWidget(self._zone_hint, stretch=1)
-        tool_row.addWidget(self._ann_toggle)
-        tool_row.addWidget(self._del_ann)
-        tool_row.addWidget(self._save_ann)
 
-        self._ann_table = QTableWidget(0, 6)
-        self._ann_table.setHorizontalHeaderLabels(["", "Type", "Label", "Start (s)", "End (s)", "Id"])
-        self._ann_table.hideColumn(5)
+        self._ann_table = QTableWidget(0, 5)
+        self._ann_table.setObjectName("AnnTable")
+        self._ann_table.setHorizontalHeaderLabels(["Label", "Type", "Start", "End", "Id"])
+        self._ann_table.hideColumn(_COL_END)
+        self._ann_table.hideColumn(_COL_ID)
         self._ann_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self._ann_table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self._ann_table.setShowGrid(False)
+        self._ann_table.setAlternatingRowColors(False)
+        self._ann_table.verticalHeader().setVisible(False)
+        self._ann_table.setFrameShape(QFrame.Shape.NoFrame)
+        self._ann_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._ann_table.itemSelectionChanged.connect(self._on_table_selection_changed)
         self._ann_table.itemChanged.connect(self._on_table_item_changed)
         hdr = self._ann_table.horizontalHeader()
-        hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.Fixed)
-        self._ann_table.setColumnWidth(0, 36)
+        hdr.setStretchLastSection(False)
+        hdr.setSectionResizeMode(_COL_LABEL, QHeaderView.ResizeMode.Stretch)
+        hdr.setSectionResizeMode(_COL_TYPE, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setSectionResizeMode(_COL_START, QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        type_hdr = QTableWidgetItem("Type")
+        type_hdr.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        start_hdr = QTableWidgetItem("Start")
+        start_hdr.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self._ann_table.setHorizontalHeaderItem(_COL_TYPE, type_hdr)
+        self._ann_table.setHorizontalHeaderItem(_COL_START, start_hdr)
+
+        self._ann_count = QLabel("0")
+        self._ann_count.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._ann_count.setFixedHeight(20)
+        self._ann_count.setMinimumWidth(20)
+        self._ann_count_rail = QLabel("0")
+        self._ann_count_rail.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._ann_count_rail.setFixedSize(22, 22)
+
+        grip = QLabel()
+        grip.setFixedSize(18, 18)
+        self._ann_grip = grip
+        grip_rail = QLabel()
+        grip_rail.setFixedSize(18, 18)
+        self._ann_grip_rail = grip_rail
+
+        header = QHBoxLayout()
+        header.setContentsMargins(8, 6, 8, 6)
+        header.setSpacing(8)
+        header.addWidget(grip)
+        title = QLabel("Annotations")
+        title.setStyleSheet("font-weight: 600;")
+        header.addWidget(title)
+        header.addWidget(self._ann_count)
+        header.addStretch(1)
+        header.addWidget(self._del_ann)
+        header.addWidget(self._save_ann)
+        rule = QFrame()
+        rule.setFrameShape(QFrame.Shape.VLine)
+        rule.setFixedWidth(1)
+        header.addWidget(rule)
+        header.addWidget(self._ann_hide)
+
+        self._ann_expanded = QWidget()
+        expanded_layout = QVBoxLayout(self._ann_expanded)
+        expanded_layout.setContentsMargins(0, 0, 0, 0)
+        expanded_layout.setSpacing(0)
+        expanded_layout.addLayout(header)
+        expanded_layout.addWidget(self._ann_table, stretch=1)
+
+        rail = QVBoxLayout()
+        rail.setContentsMargins(6, 10, 6, 10)
+        rail.setSpacing(10)
+        rail.addWidget(grip_rail, 0, Qt.AlignmentFlag.AlignHCenter)
+        rail.addWidget(_VerticalLabel("Annotations"), 1, Qt.AlignmentFlag.AlignHCenter)
+        rail.addWidget(self._ann_count_rail, 0, Qt.AlignmentFlag.AlignHCenter)
+        rail.addWidget(self._ann_show, 0, Qt.AlignmentFlag.AlignHCenter)
+        self._ann_collapsed = QWidget()
+        self._ann_collapsed.setLayout(rail)
+        self._ann_collapsed.hide()
 
         self._ann_panel = QWidget()
         ann_layout = QVBoxLayout(self._ann_panel)
         ann_layout.setContentsMargins(0, 0, 0, 0)
-        ann_layout.addWidget(QLabel("Annotations"))
-        ann_layout.addWidget(self._ann_table, stretch=1)
+        ann_layout.setSpacing(0)
+        ann_layout.addWidget(self._ann_expanded, 1)
+        ann_layout.addWidget(self._ann_collapsed, 1)
+        self._ann_expanded_width = 320
+        self._ann_panel.setMinimumWidth(260)
+        self._apply_ann_chrome()
 
         self._metric_bar = QWidget()
         self._metric_layout = QHBoxLayout(self._metric_bar)
         self._metric_layout.setContentsMargins(0, 2, 0, 2)
         self._metric_layout.setSpacing(8)
 
-        plot_split = QSplitter(Qt.Orientation.Horizontal)
-        plot_split.addWidget(self._metrics_plot)
-        plot_split.addWidget(self._ann_panel)
-        plot_split.setStretchFactor(0, 3)
-        plot_split.setStretchFactor(1, 1)
+        self._plot_split = QSplitter(Qt.Orientation.Horizontal)
+        self._plot_split.addWidget(self._metrics_plot)
+        self._plot_split.addWidget(self._ann_panel)
+        self._plot_split.setStretchFactor(0, 3)
+        self._plot_split.setStretchFactor(1, 1)
+        self._plot_split.setCollapsible(1, False)
 
         self._slider = _SeekSlider(Qt.Orientation.Horizontal)
         self._slider.setEnabled(False)
@@ -1038,7 +1154,7 @@ class PlaybackPage(QWidget):
         bottom_layout.setSpacing(6)
         bottom_layout.addLayout(tool_row)
         bottom_layout.addWidget(self._metric_bar)
-        bottom_layout.addWidget(plot_split, stretch=1)
+        bottom_layout.addWidget(self._plot_split, stretch=1)
         slider_row = QHBoxLayout()
         slider_row.addWidget(self._slider, stretch=1)
         slider_row.addWidget(self._time_label)
@@ -1104,11 +1220,28 @@ class PlaybackPage(QWidget):
 
         self._refresh_tool_hint()
 
+    def showEvent(self, event) -> None:  # type: ignore[no-untyped-def]
+        super().showEvent(event)
+        self.claim_keyboard_focus()
+
+    def claim_keyboard_focus(self) -> None:
+        """Take keyboard focus after navigation so Space is active immediately.
+
+        Deferred by one event-loop turn so it runs after the sidebar button
+        that opened the page finishes assigning focus to itself.
+        """
+        QTimer.singleShot(0, self._claim_keyboard_focus)
+
+    def _claim_keyboard_focus(self) -> None:
+        if self.isVisible():
+            self.setFocus(Qt.FocusReason.OtherFocusReason)
+
     def refresh_theme(self) -> None:
         """Called by the main window after a theme change."""
         self._metrics_plot.refresh_theme()
         self._ann_mgr.refresh_theme()
         self._set_play_icon(self._is_playing())
+        self._apply_ann_chrome()
 
     def _set_play_icon(self, playing: bool) -> None:
         self._play.setIcon(icon("pause" if playing else "play", current_palette().text, 16))
@@ -1130,11 +1263,58 @@ class PlaybackPage(QWidget):
             return
         self._toggle_play()
 
-    def _set_annotations_visible(self, visible: bool) -> None:
-        self._ann_panel.setVisible(visible)
-        self._ann_toggle.setToolTip(
-            "Hide the annotations table" if visible else "Show the annotations table"
+    def _apply_ann_chrome(self) -> None:
+        """Icons and colours for the annotation header, rail, and table."""
+        p = current_palette()
+        self._del_ann.setIcon(icon("trash", p.text, 16))
+        self._save_ann.setIcon(icon("save", p.text, 15))
+        self._ann_hide.setIcon(icon("panel", p.text, 16))
+        self._ann_show.setIcon(icon("chevron-down", p.text, 16))
+        self._ann_grip.setPixmap(icon("grip", p.muted, 16).pixmap(16, 16))
+        self._ann_grip_rail.setPixmap(icon("grip", p.muted, 16).pixmap(16, 16))
+        badge = (
+            f"background: {p.surface_hover}; color: {p.text}; border-radius: 10px; "
+            "padding: 0 6px; font-weight: 600;"
         )
+        self._ann_count.setStyleSheet(badge)
+        self._ann_count_rail.setStyleSheet(badge + " border-radius: 11px;")
+        self._save_ann.setStyleSheet(
+            f"QPushButton {{ background: transparent; color: {p.text}; "
+            f"border: 1px solid {p.border}; border-radius: 8px; padding: 4px 10px; }}"
+            f"QPushButton:hover {{ background: {p.surface_hover}; }}"
+            f"QPushButton:disabled {{ color: {p.disabled_text}; }}"
+        )
+        selected = "#1B3F73" if p.name == "dark" else "#D6E4FA"
+        selected_text = "#FFFFFF" if p.name == "dark" else p.text
+        self._ann_table.setStyleSheet(
+            f"QTableWidget#AnnTable {{ background: {p.background}; color: {p.text}; border: none; }}"
+            "QTableWidget#AnnTable::item { padding: 6px 10px; border: none; }"
+            f"QTableWidget#AnnTable::item:selected {{ background: {selected}; color: {selected_text}; }}"
+            f"QHeaderView::section {{ background: {p.background}; color: {p.muted}; "
+            f"border: none; border-bottom: 1px solid {p.border}; padding: 8px 10px; font-weight: 500; }}"
+        )
+        self._ann_collapsed.update()
+
+    def _set_ann_count(self, count: int) -> None:
+        text = str(count)
+        self._ann_count.setText(text)
+        self._ann_count_rail.setText(text)
+
+    def _set_annotations_visible(self, visible: bool) -> None:
+        self._ann_expanded.setVisible(visible)
+        self._ann_collapsed.setVisible(not visible)
+        if visible:
+            self._ann_panel.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+            self._ann_panel.setMinimumWidth(260)
+            self._ann_panel.setMaximumWidth(16777215)
+            total = sum(self._plot_split.sizes()) or 1000
+            width = self._ann_expanded_width
+            self._plot_split.setSizes([max(200, total - width), width])
+        else:
+            sizes = self._plot_split.sizes()
+            if len(sizes) == 2 and sizes[1] > 80:
+                self._ann_expanded_width = sizes[1]
+            self._ann_panel.setFixedWidth(48)
 
     def can_leave(self) -> bool:
         """Called by the main window before another page is shown: offers to save edited annotations."""
@@ -1199,7 +1379,7 @@ class PlaybackPage(QWidget):
 
     def _select_table_row_for_id(self, ann_id: str) -> None:
         for r in range(self._ann_table.rowCount()):
-            it = self._ann_table.item(r, 5)
+            it = self._ann_table.item(r, _COL_ID)
             if it is not None and it.text() == ann_id:
                 self._ann_table.blockSignals(True)
                 self._ann_table.selectRow(r)
@@ -1238,20 +1418,19 @@ class PlaybackPage(QWidget):
         self._table_refreshing = True
         self._ann_table.blockSignals(True)
         try:
-            for r in range(self._ann_table.rowCount()):
-                w = self._ann_table.cellWidget(r, 0)
-                if w is not None:
-                    self._ann_table.removeCellWidget(r, 0)
-                    w.deleteLater()
             rows = self._ann_mgr.row_snapshot()
             self._ann_table.setRowCount(len(rows))
-            for i, (_aid, typ, label, start_s, end_s, vis) in enumerate(rows):
-                self._ann_table.setCellWidget(i, 0, self._make_visibility_toggle(_aid, vis))
-                self._ann_table.setItem(i, 1, QTableWidgetItem(typ))
+            right = Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+            for i, (_aid, typ, label, start_s, end_s, _vis) in enumerate(rows):
                 lab = QTableWidgetItem(label)
                 lab.setFlags(lab.flags() | Qt.ItemFlag.ItemIsEditable)
-                self._ann_table.setItem(i, 2, lab)
+                self._ann_table.setItem(i, _COL_LABEL, lab)
+                kind = QTableWidgetItem(typ)
+                kind.setTextAlignment(right)
+                kind.setFlags(kind.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                self._ann_table.setItem(i, _COL_TYPE, kind)
                 st = QTableWidgetItem(start_s)
+                st.setTextAlignment(right)
                 en = QTableWidgetItem(end_s)
                 if typ == "Event":
                     st.setFlags(st.flags() | Qt.ItemFlag.ItemIsEditable)
@@ -1259,20 +1438,21 @@ class PlaybackPage(QWidget):
                 else:
                     st.setFlags(st.flags() | Qt.ItemFlag.ItemIsEditable)
                     en.setFlags(en.flags() | Qt.ItemFlag.ItemIsEditable)
-                self._ann_table.setItem(i, 3, st)
-                self._ann_table.setItem(i, 4, en)
+                self._ann_table.setItem(i, _COL_START, st)
+                self._ann_table.setItem(i, _COL_END, en)
                 id_item = QTableWidgetItem(_aid)
                 id_item.setFlags(id_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                self._ann_table.setItem(i, 5, id_item)
+                self._ann_table.setItem(i, _COL_ID, id_item)
             if keep_sel is not None:
                 for r in range(self._ann_table.rowCount()):
-                    it = self._ann_table.item(r, 5)
+                    it = self._ann_table.item(r, _COL_ID)
                     if it is not None and it.text() == keep_sel:
                         self._ann_table.selectRow(r)
                         break
         finally:
             self._ann_table.blockSignals(False)
             self._table_refreshing = False
+        self._set_ann_count(self._ann_table.rowCount())
         self._del_ann.setEnabled(self._ann_mgr.selected_id() is not None)
 
     def _on_table_selection_changed(self) -> None:
@@ -1283,7 +1463,7 @@ class PlaybackPage(QWidget):
             self._ann_mgr.select(None)
             self._del_ann.setEnabled(False)
             return
-        it = self._ann_table.item(row, 5)
+        it = self._ann_table.item(row, _COL_ID)
         if it is None:
             self._del_ann.setEnabled(False)
             return
@@ -1294,16 +1474,16 @@ class PlaybackPage(QWidget):
         if self._table_refreshing:
             return
         row = item.row()
-        id_item = self._ann_table.item(row, 5)
+        id_item = self._ann_table.item(row, _COL_ID)
         if id_item is None:
             return
         aid = id_item.text()
         col = item.column()
-        typ_item = self._ann_table.item(row, 1)
+        typ_item = self._ann_table.item(row, _COL_TYPE)
         typ = typ_item.text() if typ_item else ""
-        if col == 2:
+        if col == _COL_LABEL:
             self._ann_mgr.set_label(aid, item.text())
-        elif col == 3:
+        elif col == _COL_START:
             try:
                 t = float(item.text())
             except ValueError:
@@ -1312,15 +1492,15 @@ class PlaybackPage(QWidget):
             if typ == "Event":
                 self._ann_mgr.set_point_time(aid, t)
             else:
-                en = self._ann_table.item(row, 4)
+                en = self._ann_table.item(row, _COL_END)
                 try:
                     t1 = float(en.text()) if en and en.text() else t
                 except ValueError:
                     self._refresh_annotation_table()
                     return
                 self._ann_mgr.set_zone_times(aid, t, t1)
-        elif col == 4 and typ == "Zone":
-            st = self._ann_table.item(row, 3)
+        elif col == _COL_END and typ == "Zone":
+            st = self._ann_table.item(row, _COL_START)
             try:
                 t0 = float(st.text()) if st else 0.0
                 t1 = float(item.text())
@@ -1328,7 +1508,7 @@ class PlaybackPage(QWidget):
                 self._refresh_annotation_table()
                 return
             self._ann_mgr.set_zone_times(aid, t0, t1)
-        if col in (3, 4):
+        if col in (_COL_START, _COL_END):
             self._refresh_annotation_table()
             self._select_table_row_for_id(aid)
         self._annotations_dirty = True
