@@ -21,19 +21,26 @@ def app():
     return instance
 
 
-def test_process_page_has_no_run_summary_and_run_sits_in_step_2(app) -> None:
+@pytest.fixture
+def page(app):
+    """An OfflinePage whose inspector thread is stopped afterwards.
+
+    The app stops it on aboutToQuit, which never fires in tests; a thread still running at exit makes Qt abort.
+    """
     from nucleuskit_toolkit.ui.pages.offline_page import OfflinePage
 
-    page = OfflinePage()
+    instance = OfflinePage()
+    yield instance
+    instance._stop_inspector()
+
+
+def test_process_page_has_no_run_summary_and_run_sits_in_step_2(page) -> None:
     assert not hasattr(page, "_summary_card")
     assert page._run.parent() is page._options_card or page._options_card.isAncestorOf(page._run)
     assert not page._run.isEnabled()
 
 
-def test_running_keeps_cancel_clickable(app) -> None:
-    from nucleuskit_toolkit.ui.pages.offline_page import OfflinePage
-
-    page = OfflinePage()
+def test_running_keeps_cancel_clickable(page) -> None:
     page._set_processing(True)
     assert page._run.isEnabled()
     assert not page._opt_nlms.isEnabled() and not page._emotion_model.isEnabled()
