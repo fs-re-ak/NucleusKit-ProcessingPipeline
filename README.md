@@ -22,7 +22,7 @@ Since version 2.0.0 the processing itself (heart dynamics, arousal, cognition, e
   - [Top-level folders](#top-level-folders)
   - [rawData/ — typical inputs](#rawdata--typical-inputs)
   - [features/ — notable outputs](#features--notable-outputs)
-  - [results/ — primary toolkit tables](#results--primary-pipeline-tables)
+  - [results/ — primary toolkit tables](#results--primary-toolkit-tables)
 - [Optional POV movie conversion](#optional-pov-movie-conversion)
 - [Technical documentation](#technical-documentation)
 - [Trust and bundled models](#trust-and-bundled-models)
@@ -114,7 +114,7 @@ python3 -m venv .venv
 .venv/bin/python -m pytest
 ```
 
-The re-ak-core clone satisfies Nucleus-Kit's `re-ak-core>=1.0.1,<1.1` requirement, so pip keeps it instead of
+The re-ak-core clone satisfies Nucleus-Kit's `re-ak-core>=1.0.2,<1.1` requirement, so pip keeps it instead of
 downloading the published one. To reproduce the tested environment exactly, install `requirements.txt` instead of the
 `[dev,gui]` extras (it needs re-ak-core on PyPI).
 
@@ -305,6 +305,7 @@ leave **Start in** empty.
 |--------|---------|
 | **Hermes headset** | EEG and EMG (including features used by the emotion model) |
 | **Shimmer wristband** | PPG and EDA (GSR processing in code maps to the Shimmer EDA channel) |
+| **GPS** | Latitude and longitude, resampled to the shared 2 Hz timebase (`results/gpsDf.csv`) |
 
 ## Graphical interface
 
@@ -430,18 +431,15 @@ environment variables.
 
 ## Technical documentation
 
-The [`doc/`](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/tree/main/doc/) folder contains detailed technical descriptions of each processing toolkit for traceability and scientific reference. The heart, arousal, cognition, emotions and events processing now lives in re-ak-core: those pages describe Nucleus-Kit 1.1 and will move to re-ak-core's documentation; re-ak-core's CHANGELOG lists what changed since.
+Heart, arousal, cognition, emotions and events are documented with [re-ak-core](https://github.com/fs-re-ak/re-ak-core/tree/main/doc). This repository documents the desktop orchestration and the steps that stay here. The Nucleus-Kit 1.1 algorithm pages are kept in [`doc/archive/`](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/tree/main/doc/archive).
 
-| File | Pipeline |
+| File | What it describes |
 |------|----------|
-| [`doc/overview.md`](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/blob/main/doc/overview.md) | Pipeline orchestration, step order, session layout, shared 2 Hz timebase |
-| [`doc/pipeline_heart.md`](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/blob/main/doc/pipeline_heart.md) | Shimmer PPG → Heart Rate Dynamics (SQI + MAD artifact rejection, NeuroKit2, HRV) |
-| [`doc/pipeline_arousal.md`](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/blob/main/doc/pipeline_arousal.md) | Shimmer EDA → Arousal (cvxEDA tonic/phasic decomposition, SCR detection) |
-| [`doc/pipeline_cognition.md`](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/blob/main/doc/pipeline_cognition.md) | Hermes EEG → Cognitive Indexes (Welch power bands, epoch-level artefact rejection, Engagement) |
-| [`doc/pipeline_emotions.md`](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/blob/main/doc/pipeline_emotions.md) | Hermes EMG → Emotion Classification (AVG_RMS artefact gate, two-stage LDA/KNN classifier) |
-| [`doc/pipeline_events.md`](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/blob/main/doc/pipeline_events.md) | Raw Events → Feature / Web Events + Playback Annotations |
-| [`doc/pipeline_positioning.md`](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/blob/main/doc/pipeline_positioning.md) | GPS Positioning |
+| [`doc/overview.md`](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/blob/main/doc/overview.md) | Current step order: re-ak-core's pipeline plus POV, video rotation and GPS |
+| [re-ak-core `doc/`](https://github.com/fs-re-ak/re-ak-core/tree/main/doc) | Heart, arousal, cognition, emotions, events, invalid samples, 2 Hz timebase |
+| [`doc/pipeline_positioning.md`](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/blob/main/doc/pipeline_positioning.md) | GPS positioning |
 | [`doc/mqtt_interface.md`](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/blob/main/doc/mqtt_interface.md) | Vizia Mobile MQTT interface — status, commands, and tags |
+| [`doc/archive/`](https://github.com/fs-re-ak/NucleusKit-ProcessingPipeline/tree/main/doc/archive) | Nucleus-Kit 1.1 algorithm pages (modules removed in 2.0.0) |
 
 ## Trust and bundled models
 
