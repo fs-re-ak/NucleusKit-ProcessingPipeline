@@ -1269,7 +1269,7 @@ class PlaybackPage(QWidget):
         self._del_ann.setIcon(icon("trash", p.text, 16))
         self._save_ann.setIcon(icon("save", p.text, 15))
         self._ann_hide.setIcon(icon("panel", p.text, 16))
-        self._ann_show.setIcon(icon("chevron-down", p.text, 16))
+        self._ann_show.setIcon(icon("chevron-left", p.text, 16))
         self._ann_grip.setPixmap(icon("grip", p.muted, 16).pixmap(16, 16))
         self._ann_grip_rail.setPixmap(icon("grip", p.muted, 16).pixmap(16, 16))
         badge = (
@@ -1303,18 +1303,23 @@ class PlaybackPage(QWidget):
     def _set_annotations_visible(self, visible: bool) -> None:
         self._ann_expanded.setVisible(visible)
         self._ann_collapsed.setVisible(not visible)
+        total = sum(self._plot_split.sizes()) or 1000
         if visible:
+            self._plot_split.setStretchFactor(1, 1)
             self._ann_panel.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
             self._ann_panel.setMinimumWidth(260)
             self._ann_panel.setMaximumWidth(16777215)
-            total = sum(self._plot_split.sizes()) or 1000
-            width = self._ann_expanded_width
-            self._plot_split.setSizes([max(200, total - width), width])
+            width = min(self._ann_expanded_width, max(260, total - 200))
+            self._plot_split.setSizes([total - width, width])
         else:
             sizes = self._plot_split.sizes()
             if len(sizes) == 2 and sizes[1] > 80:
                 self._ann_expanded_width = sizes[1]
+            # Keep the rail on the right edge and give the freed width to the graph.
+            self._plot_split.setStretchFactor(1, 0)
+            self._ann_panel.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
             self._ann_panel.setFixedWidth(48)
+            self._plot_split.setSizes([max(0, total - 48), 48])
 
     def can_leave(self) -> bool:
         """Called by the main window before another page is shown: offers to save edited annotations."""
