@@ -18,7 +18,6 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
-
 from nucleuskit_toolkit.ui.pages.playback_helpers import (
     COGNITION_COLUMNS,
     ordered_playback_columns,
@@ -26,7 +25,6 @@ from nucleuskit_toolkit.ui.pages.playback_helpers import (
     smooth_y,
 )
 from reak_core.models import EMOTION_COLUMNS
-
 
 # ---------------------------------------------------------------------------
 # Helpers
