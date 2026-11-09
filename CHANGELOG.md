@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.2.2
+
+- test(ui): stop the Process page inspector thread after each test
+- test(playback): expect every emotion column to be plotted
+- chore(ui): fix ruff line length and import order
+- docs(pipeline): point the toolkit docs at the current core
+- Fixed the collapse for annotations
+- playback: focus Space on entry and restyle the annotation table
+- playback: transport controls, click seek, and one-shot annotations
+- processing: optional force-replace of existing features and results
+- playback: X-only wheel zoom/pan, Gaussian smooth kernel
+- playback: full session X range, NaN gaps, keep all-zero cols, arrow key seek
+- build(release): merge the bump pull request and continue in one run
+- build(release): ask for the new version and open the bump pull request
+- build: add deploy_pip_package.bat to release on TestPyPI then PyPI
+- docs(readme): create the venv in the folder where install is run
+
 ## 2.2.1
 
 ### Fixed
