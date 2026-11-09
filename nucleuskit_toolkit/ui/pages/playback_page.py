@@ -51,6 +51,12 @@ from PySide6.QtWidgets import (
 from reak_core.models import EMOTION_COLUMNS
 
 from nucleuskit_toolkit.ui.icons import icon
+from nucleuskit_toolkit.ui.pages.playback_helpers import (
+    session_time_range as _session_time_range,
+)
+from nucleuskit_toolkit.ui.pages.playback_helpers import (
+    smooth_y as _smooth_y_impl,
+)
 from nucleuskit_toolkit.ui.plot_style import (
     EMOTION_ORDER,
     pen,
@@ -61,10 +67,6 @@ from nucleuskit_toolkit.ui.plot_style import (
     translucent,
 )
 from nucleuskit_toolkit.ui.theme import current_palette
-from nucleuskit_toolkit.ui.pages.playback_helpers import (
-    session_time_range as _session_time_range,
-    smooth_y as _smooth_y_impl,
-)
 
 _Z_NEUTRAL = -10.0
 _Z_EMOTION_BASE = 0.0

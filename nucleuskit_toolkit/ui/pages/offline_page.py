@@ -639,7 +639,14 @@ class OfflinePage(QWidget):
     def _set_processing(self, running: bool) -> None:
         self._running = running
         # Not the whole options card: it holds the Run / Cancel button.
-        for widget in (self._input_card, self._opt_skip_rotation, self._opt_nlms, self._opt_force, self._emotion_model, self._clear):
+        for widget in (
+            self._input_card,
+            self._opt_skip_rotation,
+            self._opt_nlms,
+            self._opt_force,
+            self._emotion_model,
+            self._clear,
+        ):
             widget.setEnabled(not running)
         self._run.set_mode(self._run_mode())
         if not running:

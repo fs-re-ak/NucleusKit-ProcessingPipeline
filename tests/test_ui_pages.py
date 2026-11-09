@@ -1,4 +1,4 @@
-"""Process page layout (no run summary) and Playback series filtering."""
+"""Process page layout (no run summary) and Playback series."""
 
 from __future__ import annotations
 
@@ -41,8 +41,10 @@ def test_running_keeps_cancel_clickable(app) -> None:
     assert page._opt_nlms.isEnabled()
 
 
-def test_playback_shows_only_series_with_data(app, tmp_path) -> None:
+def test_playback_keeps_every_emotion_column(app, tmp_path) -> None:
+    """All-zero and all-NaN columns are plotted too (flat line or gap), Neutral first, in their named colours."""
     from nucleuskit_toolkit.ui.pages.playback_page import MetricsPlotWidget
+    from reak_core.models import EMOTION_COLUMNS
 
     t = np.arange(0, 10, 0.5)
     df = pd.DataFrame({"Timestamp": t, "Neutral": 0.5, "Happiness": 0.3, "Anger": 0.0,
@@ -53,14 +55,16 @@ def test_playback_shows_only_series_with_data(app, tmp_path) -> None:
     widget = MetricsPlotWidget()
     assert widget.load_csv(str(path)) is None
     shown = [name for name, _cb, _filled in widget._series]
-    assert shown == ["Neutral", "Happiness", "Fear"]
+    assert shown == ["Neutral"] + [c for c in EMOTION_COLUMNS if c != "Neutral" and c in df.columns]
     for curve, name in zip(widget._curves, shown):
         assert curve.opts["pen"].color().name().upper() == plot_style.DARK.emotion(name)
 
 
-def test_playback_reports_a_file_without_data(app, tmp_path) -> None:
+def test_playback_loads_a_file_with_only_zeros(app, tmp_path) -> None:
     from nucleuskit_toolkit.ui.pages.playback_page import MetricsPlotWidget
 
     path = tmp_path / "Emotions.csv"
     pd.DataFrame({"Timestamp": [0.0, 0.5], "Neutral": 0.0, "Happiness": 0.0}).to_csv(path, index=False)
-    assert MetricsPlotWidget().load_csv(str(path)) == "Emotions.csv has no data to plot."
+    widget = MetricsPlotWidget()
+    assert widget.load_csv(str(path)) is None
+    assert [name for name, _cb, _filled in widget._series] == ["Neutral", "Happiness"]
