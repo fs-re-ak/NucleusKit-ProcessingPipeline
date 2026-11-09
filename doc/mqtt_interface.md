@@ -215,7 +215,7 @@ Tags follow the same targeting rules as commands (single device or all discovere
 
 ### 7.4 Downstream use
 
-On the device, tags are written into the session event log. After a session is ingested, those events appear in `rawData/rawEvents.csv` and flow through the NucleusKit events pipeline (see [`pipeline_events.md`](pipeline_events.md)).
+On the device, tags are written into the session event log. After a session is ingested, those events are read from `rawData/` (`rawEvents.csv`, `events_0.csv` or `event.csv`) by re-ak-core (see [events](https://github.com/fs-re-ak/re-ak-core/blob/main/doc/pipeline_events.md)).
 
 ---
 
@@ -272,5 +272,5 @@ Both topic names are configurable per deployment. All participants must agree on
 
 | Document | Relevance |
 |----------|-----------|
-| [`pipeline_events.md`](pipeline_events.md) | How session event logs (including MQTT-injected tags) are processed after ingest |
-| [`overview.md`](overview.md) | Full offline processing pipeline |
+| [re-ak-core events](https://github.com/fs-re-ak/re-ak-core/blob/main/doc/pipeline_events.md) | How session event logs (including MQTT-injected tags) are processed after ingest |
+| [`overview.md`](overview.md) | Current offline processing pipeline |

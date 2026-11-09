@@ -1,139 +1,69 @@
-﻿# NucleusKit Processing Toolkit — Technical Overview
+﻿# Nucleus-Kit processing — technical overview
 
-> **Since Nucleus-Kit 2.0.0** `nucleuskit_toolkit/pipeline.py` runs re-ak-core's default pipeline (`reak_core.pipeline.Pipeline.default()`) and adds the local steps: POV movie conversion, video rotation (after `prepare`) and GPS (at the end). UWB positioning was removed in 2.1.0. The step descriptions below are those of 1.1.
+Offline orchestration for one session folder. The desktop application, real-time viewer, playback and MQTT controller are described in the [README](../README.md).
 
 **Package:** `nucleuskit_toolkit`  
-**Entry point:** `python -m nucleuskit_toolkit` (GUI) or `--session <dir>` (headless CLI)  
-**Authors:** Fred Simard — RE-AK Technologies Inc., Winter/Spring 2026
+**Entry point:** `python -m nucleuskit_toolkit` (GUI) or `--session <dir>` (headless)  
+**Processing:** [re-ak-core](https://github.com/fs-re-ak/re-ak-core) `Pipeline.default()`, plus the local steps below
 
 ---
 
-## 1. Purpose
+## What runs
 
-The NucleusKit Processing Toolkit is an **offline analytics engine** that transforms raw multi-modal recordings produced by a Nucleus-Kit session into a set of clean, time-aligned physiological and cognitive feature files. It is designed to run against a session directory on disk and is idempotent: each step checks whether its outputs already exist and skips re-computation when they are present.
+`nucleuskit_toolkit/pipeline.py` (`build_pipeline`) starts from re-ak-core's default pipeline and inserts Nucleus-Kit steps around it.
 
----
+POV conversion runs **before** that pipeline, and only when `pov_data_root`, `screen_id` and `ffmpeg_dir` are all set. A failure there is logged and does not stop the pipeline.
 
-## 2. Pipeline Orchestrator
+| Order | Step | Where | Output |
+|---|---|---|---|
+| — | POV movie conversion | `nucleuskit_toolkit/camera/processing.py` | Re-mux of one UUID-named camera file, when configured |
+| 1 | `prepare` | `reak_core` | `features/`, `results/`, `meta/`, `experimentConfigs/`, `results/processingLog.txt` |
+| 2 | `video_rotation` | `nucleuskit_toolkit/camera/processing.py` | `rawData/video.mp4` rotated 180° once |
+| 3 | `metainfo` | `reak_core.io` | `features/metainfo.json` |
+| 4 | `heart_dynamics` | `reak_core.ppg` | `results/HeartDynamics.csv` |
+| 5 | `arousal` | `reak_core.eda` | `results/Arousal.csv` |
+| 6 | `cognition` | `reak_core.eeg` | `results/Cognition.csv` |
+| 7 | `emotions` | `reak_core.femg` | `results/Emotions.csv` |
+| 8 | `feature_events` | `reak_core.sync` | `features/events/processedFeatureEvents.csv`, `processedWebFeatureEvents.csv` |
+| 9 | `playback_annotations` | `reak_core.sync` | `features/events/playback_annotations.json` (created once) |
+| 10 | `gps` | `nucleuskit_toolkit/position/gps_processor.py` | `results/gpsDf.csv` |
+| after | emotions report | `reak_core` exporter | `features/emotions/report_jitter_<emotion>.png` and `report_emotion_distribution.png`, when classifier inputs exist |
 
-**Module:** `nucleuskit_toolkit/pipeline.py`  
-**Class:** `NucleusKitProcessingToolkit`
+`video_rotation` is omitted when the run asks to skip it. A cancelled run finishes the step in progress and records the rest as skipped in `results/processing.json`. An exception in one step is logged and the following steps still run.
 
-The orchestrator assembles an ordered list of processing steps during `configureAsDefault()` and executes them sequentially in `processSession(jobDetails)`. Any exception thrown by a single step is caught, logged, and does not abort subsequent steps.
+UWB indoor positioning was removed in Nucleus-Kit 2.1.0. Sessions are not given `results/positions.csv` or `results/zones.csv`.
 
-### Step execution order
+## Session layout
 
-| # | Function | Module | Description |
-|---|----------|--------|-------------|
-| 0 | `ensure_session_rawdata_layout` | `session/layout.py` | Migrate flat sessions into the canonical `rawData/` sub-folder layout |
-| 1 | `convertPOVMovieClip` *(optional)* | `camera/processing.py` | Convert POV camera UUID file from MKV to MP4 (requires POV config) |
-| 2 | `prepareDirectory` | `session/layout.py` | Create `features/`, `results/`, `meta/`, and processing log |
-| 3 | `ensure_session_video_rotated_180` | `camera/processing.py` | Apply ffmpeg 180° rotation to `rawData/video.mp4` (idempotent marker) |
-| 4 | `extractMetaInfo` | `session/meta/info.py` | Compute session duration and readability → `features/metainfo.json` |
-| 5 | `computeHeartDynamics` | `shimmer/processor/heart.py` | PPG → heart rate, HRV metrics → `results/HeartDynamics.csv` |
-| 6 | `computeArousal` | `shimmer/processor/eda.py` | EDA → tonic/phasic decomposition → `results/Arousal.csv` |
-| 7 | `computeCognitiveIndexes` | `hermes/processor/cognition_processor.py` | EEG → power bands → engagement indexes → `results/Cognition.csv` |
-| 8 | `computeEmotions` | `hermes/processor/emotions_processor/` | EMG → two-stage classifier → emotion probabilities → `results/Emotions.csv` |
-| 9 | `eventProcessor` | `events/processor.py` | Split `rawEvents.csv` into feature and web event CSVs |
-| 10 | `seedPlaybackAnnotations` | `events/eventsProcessor.py` | Generate `features/events/playback_annotations.json` |
-| 11 | `processGPS` | `position/gps_processor.py` | GPS interpolation → `results/gpsDf.csv` |
+The session root is the folder passed to `--session` or chosen on the Process page. When `rawData/` is missing, re-ak-core creates it and moves every top-level entry into it except `rawData`, `features`, `results`, `meta` and `experimentConfigs`.
 
----
+| Folder | Role |
+|---|---|
+| `rawData/` | Recordings. Common names: `eeg.csv` or `rawEEG_0.csv`, `shimmer.csv`, `event.csv` or `rawEvents.csv`, `gps.csv`, `video.mp4` |
+| `features/` | Intermediate files, including `features/metainfo.json` |
+| `results/` | `Emotions.csv`, `Cognition.csv`, `Arousal.csv`, `HeartDynamics.csv`, `gpsDf.csv`, `emotion_model.json`, `processing.json`, `processingLog.txt` |
+| `meta/`, `experimentConfigs/` | Created for session assets and run configuration. `metainfo.json` is not written here |
 
-## 3. Session Directory Layout
+Result tables share a 2 Hz timebase. `Timestamp` is seconds from the start of the recording. Existing step outputs are reused; delete the step's result file to recompute it. `results/processing.json` records the core version, the emotion model, each step's status and a signal-quality summary.
 
-A processed session folder has the following canonical structure:
+## Algorithm pages
 
-```
-<session>/
-├── rawData/                    # Raw hardware outputs (read-only by the pipeline)
-│   ├── shimmer.csv             # Multi-channel Shimmer export (timestamp, EDA, PPG, …)
-│   ├── rawEEG_0.csv            # Hermes EEG/EMG recording (timestamp + 8 channels)
-│   ├── rawEvents.csv           # Raw event log
-│   ├── event.csv               # Processed event timestamps (for playback seeding)
-│   ├── gps.csv / gps.tmp       # GPS log (unix_ts, lat, lon)
-│   └── video.mp4               # Optional POV recording
-│
-├── features/                   # Intermediate computations (traceability artefacts)
-│   ├── ppg/
-│   │   ├── ppg_resampled.csv           # Artifact-cleaned PPG at 51.2 Hz
-│   │   ├── ppg_normalized.csv          # Rolling z-score normalised PPG
-│   │   ├── ppg_resample_report.txt     # Gap and rate statistics
-│   │   ├── ppg_rejected.png            # Three-colour artifact rejection map
-│   │   ├── ppg_overview.png            # Waveform + annotated peaks
-│   │   └── ppg_spectrogram.png         # STFT spectrogram (0–6 Hz)
-│   ├── eda/
-│   │   ├── eda_resampled.csv           # Resampled EDA at 51.2 Hz (kΩ)
-│   │   ├── eda_resample_report.txt
-│   │   ├── eda_overview.png            # EDA, tonic component, SCR events
-│   │   └── SCR_events.csv              # Discrete SCR event timestamps and amplitudes
-│   ├── cognition/
-│   │   ├── powerBands.csv              # Per-window T9/T10 band powers (long format)
-│   │   ├── temporalBandPowers.csv      # Bilateral temporal band averages + relative powers
-│   │   ├── artefactStats.csv           # Epoch-level artefact rejection summary
-│   │   ├── epochMetrics.csv            # Per-epoch signal metrics for threshold calibration
-│   │   └── eegArtefactPlot.png         # Filtered EEG waveform with rejected regions highlighted
-│   ├── emotions/
-│   │   ├── rmsSignals.csv              # Per-window RMS (HEAD_R_RMS … NOSE_RMS)
-│   │   └── emotionClassifierInputs.csv # Classifier features + L2-normed RMS
-│   └── events/
-│       ├── processedFeatureEvents.csv
-│       ├── processedWebFeatureEvents.csv
-│       └── playback_annotations.json
-│
-├── results/                    # Final output files consumed by downstream tools
-│   ├── HeartDynamics.csv       # 2 Hz: mean_hr, mean_nn, sdnn, rmssd, pnn50, cvsd, cvnn
-│   ├── Arousal.csv             # 2 Hz: TonicEDA, PhasicEDA
-│   ├── Cognition.csv           # 2 Hz: Engagement
-│   ├── Emotions.csv            # 2 Hz: Neutral, Happiness, Anger, Surprise, …
-│   └── gpsDf.csv               # 2 Hz: Latitude, Longitude
-│
-└── meta/                       # Session metadata
-    └── metainfo.json
-```
+Heart, arousal, cognition, emotions and events are documented with the core:
 
----
+| Page | Step |
+|---|---|
+| [Overview](https://github.com/fs-re-ak/re-ak-core/blob/main/doc/overview.md) | Session contract, invalid samples, timebase |
+| [Heart](https://github.com/fs-re-ak/re-ak-core/blob/main/doc/pipeline_heart.md) | Shimmer PPG |
+| [Arousal](https://github.com/fs-re-ak/re-ak-core/blob/main/doc/pipeline_arousal.md) | Shimmer EDA |
+| [Cognition](https://github.com/fs-re-ak/re-ak-core/blob/main/doc/pipeline_cognition.md) | Hermes EEG |
+| [Emotions](https://github.com/fs-re-ak/re-ak-core/blob/main/doc/pipeline_emotions.md) | Hermes fEMG |
+| [Events](https://github.com/fs-re-ak/re-ak-core/blob/main/doc/pipeline_events.md) | Feature events and playback annotations |
 
-## 4. Shared Output Timebase
+Pages that stay in this repository:
 
-All result files share the same **2 Hz / 0.5-second timebase**. The `Timestamp` column in every result CSV represents **seconds from the start of the recording**. This alignment enables direct multi-modal fusion without additional resampling on the consumer side.
+| Page | Step |
+|---|---|
+| [pipeline_positioning.md](pipeline_positioning.md) | GPS |
+| [mqtt_interface.md](mqtt_interface.md) | Vizia Mobile MQTT |
 
-Hardware gaps (sensor disconnects ≥ 5 s) are propagated as `NaN` through every pipeline and are visible in all output files, preserving temporal fidelity.
-
----
-
-## 5. Incremental Processing (Caching)
-
-Each pipeline step begins by checking whether its primary output file already exists:
-
-- If the output exists → step is skipped with an `INFO` log message.
-- If the output is missing → full computation is performed and outputs are written.
-
-This makes the pipeline safe to re-run after partial failures. To force recomputation of a specific step, delete the corresponding output file(s) from `results/` or `features/`.
-
----
-
-## 6. Individual Pipeline Documentation
-
-| File | Pipeline |
-|------|----------|
-| [pipeline_heart.md](pipeline_heart.md) | Shimmer PPG → Heart Rate Dynamics |
-| [pipeline_arousal.md](pipeline_arousal.md) | Shimmer EDA → Arousal (cvxEDA) |
-| [pipeline_cognition.md](pipeline_cognition.md) | Hermes EEG → Cognitive Indexes |
-| [pipeline_emotions.md](pipeline_emotions.md) | Hermes EMG → Emotion Classification |
-| [pipeline_events.md](pipeline_events.md) | Raw Events → Feature / Web Events + Playback Annotations |
-| [pipeline_positioning.md](pipeline_positioning.md) | GPS Positioning |
-
----
-
-## 7. Hardware Inputs Summary
-
-| Hardware | File(s) | Nominal Rate | Channels used |
-|----------|---------|-------------|---------------|
-| Shimmer | `shimmer.csv` / `rawShimmer_0.csv` | ~51.2 Hz | col 0 = timestamp, col 4 = EDA (kΩ), col 5 = PPG; header row optional |
-| Hermes | `rawEEG_0.csv` / `eeg.tmp` | 250 Hz | col 0 = timestamp, cols 1–8 = EXG; header row optional |
-| GPS | `gps.csv` / `gps.tmp` | variable | unix_ts, latitude, longitude; header row optional |
-
----
-
-*© RE-AK Technologies Inc.*
+The Nucleus-Kit 1.1 descriptions, including module paths that no longer exist, are in [archive/](archive/).
