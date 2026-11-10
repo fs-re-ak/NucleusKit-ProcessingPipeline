@@ -16,7 +16,13 @@ The interface uses a **publish/subscribe** model on a shared MQTT broker:
 | **Device → broker** | Periodic **status** packets announce presence, recording state, and battery level |
 | **Controller → device** | **Commands** start/stop recording; **tags** inject timestamped event markers into the active session |
 
-Devices are not configured explicitly. A controller **discovers** recorders by subscribing to the status topic and collecting unique device IDs from incoming packets.
+Devices are not configured explicitly. A controller **discovers** recorders by subscribing to the status topics and collecting unique device IDs from incoming packets.
+
+Topics are **scoped by experiment** (contract v1): `{experimentId}/{recorderId}/status` and `/control`, so a broker can
+restrict each login to its own experiments and a controller discovers an experiment's devices with one wildcard
+subscription. Phones without an experiment use the **legacy** topics (`vizia/status`, `{recorderId}/control/`), for
+local brokers only. Phones may also publish raw EXG on `{experimentId}/{recorderId}/data/exg` for live processing; the
+controller does not use it.
 
 ---
 
@@ -25,12 +31,15 @@ Devices are not configured explicitly. A controller **discovers** recorders by s
 | Parameter | Default | Notes |
 |-----------|---------|-------|
 | Protocol | MQTT v3.1.1 | |
-| Port | `1883` | Standard unencrypted MQTT |
+| Broker address | — | URL `mqtt://` (plain, port 1883), `mqtts://` (TLS, 8883), `ws://` / `wss://` (WebSocket, path `/mqtt`), or a bare IP / hostname (plain TCP on the configured port) |
+| Authentication | anonymous | Username / password when set |
+| TLS CA | system CAs | Optional CA certificate file (the CA that signed the broker certificate) |
 | Keepalive | `60` s | |
 | QoS | `0` | All subscriptions and publishes use QoS 0 |
 | Clean session | `true` | |
 
-Host and port are deployment-specific. Controllers and devices must connect to the **same broker**.
+Controllers and devices must connect to the **same broker**. Use TLS and a login whenever the broker is reachable
+outside an isolated local network: the same link can carry raw biosignals.
 
 ---
 
@@ -38,26 +47,26 @@ Host and port are deployment-specific. Controllers and devices must connect to t
 
 ### 3.1 Status topic (device publishes, controller subscribes)
 
-| Setting | Default |
-|---------|---------|
-| Topic | `vizia/status` |
+| Device has an experiment | Topic | Controller subscribes to |
+|---|---|---|
+| Yes | `{experimentId}/{recorderId}/status` | `{experimentId}/+/status` |
+| No (legacy) | `vizia/status` (shared, configurable) | `vizia/status` |
 
-Every Vizia Mobile recorder publishes status JSON to this topic. Controllers subscribe once on connect and treat each message as an update for the device identified by the `id` field.
+Controllers subscribe on connect and treat each message as an update for one device: the `{recorderId}` of the topic,
+or the `id` field on the legacy shared topic. On experiment topics, a payload `id` that differs from the topic's
+recorder is rejected.
 
 ### 3.2 Command topic (controller publishes, device subscribes)
 
-| Setting | Default |
-|---------|---------|
-| Topic pattern | `{recorderId}/control/` |
+| Device has an experiment | Topic |
+|---|---|
+| Yes | `{experimentId}/{recorderId}/control` |
+| No (legacy) | `{recorderId}/control/` (suffix configurable) |
 
-- `{recorderId}` is the device identifier from status packets (field `id`).
-- The suffix `control/` is configurable but defaults to `control/`.
+Each device receives commands on the control topic that matches the status topic it was discovered on.
 
-**Example:** A device with `id` `"lab-phone-01"` receives commands on:
-
-```
-lab-phone-01/control/
-```
+**Example:** device `"lab-phone-01"` of experiment `"exp-1"` receives commands on `exp-1/lab-phone-01/control`; without
+an experiment, on `lab-phone-01/control/`.
 
 ---
 
@@ -90,11 +99,8 @@ Payloads are UTF-8 JSON strings. Malformed JSON on the status topic should be ig
 ### 5.1 Payload format
 
 ```json
-{
-  "id": "<recorderId>",
-  "recording": <boolean>,
-  "battery": <integer>
-}
+{"v": 1, "id": "<recorderId>", "experimentId": "<uuid or null>", "sessionId": "<id or null>",
+ "recording": <boolean>, "battery": <integer>, "headsetConnected": <boolean>}
 ```
 
 | Field | Type | Description |
@@ -102,6 +108,7 @@ Payloads are UTF-8 JSON strings. Malformed JSON on the status topic should be ig
 | `id` | string | Unique recorder identifier; also used as the `{recorderId}` in command topics |
 | `recording` | boolean | `true` while a recording session is active |
 | `battery` | integer | Battery level in percent; `-1` if unknown |
+| `v`, `experimentId`, `sessionId`, `headsetConnected` | | Added in contract v1 (optional for controllers). Older phones send only `id`, `recording` and `battery` |
 
 ### 5.2 Controller behaviour
 
@@ -249,11 +256,15 @@ Controller                          Broker                         Device
 
 | Setting | Default | Used by |
 |---------|---------|---------|
-| Status topic | `vizia/status` | Devices publish; controllers subscribe |
-| Command topic suffix | `control/` | Appended after `{recorderId}/` for commands and tags |
-| Broker port | `1883` | All participants |
+| Experiment | — | Experiment whose devices to discover on `{experimentId}/+/status` |
+| Broker address | — | URL or bare IP / hostname (see section 2) |
+| Broker port | `1883` | Only for a bare IP / hostname |
+| Username / password | — | Broker login (the password is not saved by the desktop app) |
+| CA file | — | CA certificate for TLS |
+| Status topic (legacy) | `vizia/status` | Devices without an experiment publish; controllers subscribe |
+| Command topic suffix (legacy) | `control/` | Appended after `{recorderId}/` for commands and tags |
 
-Both topic names are configurable per deployment. All participants must agree on the same values.
+The legacy topic names are configurable per deployment. All participants must agree on the same values.
 
 ---
 
