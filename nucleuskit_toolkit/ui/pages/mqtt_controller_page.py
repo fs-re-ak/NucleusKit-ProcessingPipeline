@@ -36,6 +36,9 @@ _KEY_HOST = "broker/host"
 _KEY_PORT = "broker/port"
 _KEY_STATUS_TOPIC = "broker/status_topic"
 _KEY_CMD_SUFFIX = "broker/command_suffix"
+_KEY_EXPERIMENT = "broker/experiment_id"
+_KEY_USERNAME = "broker/username"
+_KEY_CA_FILE = "broker/ca_file"
 
 
 class _MqttBridge(QObject):
@@ -106,19 +109,44 @@ class MqttControllerPage(QWidget):
         form = QFormLayout(group)
 
         self._host_edit = QLineEdit()
-        self._host_edit.setPlaceholderText("e.g. 192.168.1.100")
-        self._host_edit.setToolTip("IP address or hostname of the MQTT broker.")
-        form.addRow("Host:", self._host_edit)
+        self._host_edit.setPlaceholderText("e.g. mqtts://192.168.1.100:8883 or 192.168.1.100")
+        self._host_edit.setToolTip(
+            "Broker URL (mqtt://, mqtts:// for TLS, ws://, wss://) or a bare IP / hostname (plain TCP)."
+        )
+        form.addRow("Broker:", self._host_edit)
 
         self._port_spin = QSpinBox()
         self._port_spin.setRange(1, 65535)
         self._port_spin.setValue(DEFAULT_BROKER_PORT)
+        self._port_spin.setToolTip("Port used with a bare IP / hostname.")
         form.addRow("Port:", self._port_spin)
+
+        self._experiment_edit = QLineEdit()
+        self._experiment_edit.setPlaceholderText("experiment UUID (optional)")
+        self._experiment_edit.setToolTip(
+            "Discover the phones of this experiment on {experimentId}/+/status.\n"
+            "Leave empty for phones without an experiment (legacy topics, local broker)."
+        )
+        form.addRow("Experiment:", self._experiment_edit)
+
+        self._username_edit = QLineEdit()
+        self._username_edit.setPlaceholderText("optional")
+        form.addRow("Username:", self._username_edit)
+
+        self._password_edit = QLineEdit()
+        self._password_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self._password_edit.setPlaceholderText("optional (not saved)")
+        form.addRow("Password:", self._password_edit)
+
+        self._ca_edit = QLineEdit()
+        self._ca_edit.setPlaceholderText("CA certificate file for TLS (optional)")
+        self._ca_edit.setToolTip("PEM file of the CA that signed the broker certificate (RE-AK private CA).")
+        form.addRow("CA file:", self._ca_edit)
 
         self._status_topic_edit = QLineEdit()
         self._status_topic_edit.setPlaceholderText(DEFAULT_STATUS_TOPIC)
         self._status_topic_edit.setToolTip(
-            "Topic on which Vizia devices publish status packets.\n"
+            "Legacy shared status topic (phones without an experiment).\n"
             "Default: vizia/status"
         )
         form.addRow("Status topic:", self._status_topic_edit)
@@ -126,7 +154,7 @@ class MqttControllerPage(QWidget):
         self._cmd_suffix_edit = QLineEdit()
         self._cmd_suffix_edit.setPlaceholderText(DEFAULT_COMMAND_TOPIC_SUFFIX)
         self._cmd_suffix_edit.setToolTip(
-            "Suffix appended after {recorderId}/ when publishing commands.\n"
+            "Legacy: suffix appended after {recorderId}/ when publishing commands.\n"
             "Default: control/"
         )
         form.addRow("Command suffix:", self._cmd_suffix_edit)
@@ -236,6 +264,9 @@ class MqttControllerPage(QWidget):
         self._port_spin.setValue(int(s.value(_KEY_PORT, DEFAULT_BROKER_PORT)))
         self._status_topic_edit.setText(s.value(_KEY_STATUS_TOPIC, "", type=str))
         self._cmd_suffix_edit.setText(s.value(_KEY_CMD_SUFFIX, "", type=str))
+        self._experiment_edit.setText(s.value(_KEY_EXPERIMENT, "", type=str))
+        self._username_edit.setText(s.value(_KEY_USERNAME, "", type=str))
+        self._ca_edit.setText(s.value(_KEY_CA_FILE, "", type=str))
 
     def _save_settings(self) -> None:
         s = QSettings(_SETTINGS_ORG, _SETTINGS_APP)
@@ -243,13 +274,16 @@ class MqttControllerPage(QWidget):
         s.setValue(_KEY_PORT, self._port_spin.value())
         s.setValue(_KEY_STATUS_TOPIC, self._status_topic_edit.text().strip())
         s.setValue(_KEY_CMD_SUFFIX, self._cmd_suffix_edit.text().strip())
+        s.setValue(_KEY_EXPERIMENT, self._experiment_edit.text().strip())
+        s.setValue(_KEY_USERNAME, self._username_edit.text().strip())
+        s.setValue(_KEY_CA_FILE, self._ca_edit.text().strip())
 
     # ── Connection actions ───────────────────────────────────────────────
 
     def _on_connect_clicked(self) -> None:
         host = self._host_edit.text().strip()
         if not host:
-            QMessageBox.warning(self, "Host required", "Enter the broker IP address or hostname.")
+            QMessageBox.warning(self, "Broker required", "Enter the broker URL, IP address or hostname.")
             return
 
         port = self._port_spin.value()
@@ -266,16 +300,24 @@ class MqttControllerPage(QWidget):
         self._device_combo.addItem("All devices", TARGET_ALL)
         self._device_status_label.setText("")
 
-        self._controller = MqttController(
-            broker_host=host,
-            broker_port=port,
-            status_topic=status_topic,
-            command_topic_suffix=cmd_suffix,
-            on_log=self._bridge.log_line.emit,
-            on_device_update=self._bridge.device_updated.emit,
-            on_connected=self._bridge.connected.emit,
-            on_disconnected=self._bridge.disconnected.emit,
-        )
+        try:
+            self._controller = MqttController(
+                broker_host=host,
+                broker_port=port,
+                status_topic=status_topic,
+                command_topic_suffix=cmd_suffix,
+                experiment_id=self._experiment_edit.text().strip() or None,
+                username=self._username_edit.text().strip() or None,
+                password=self._password_edit.text() or None,
+                ca_file=self._ca_edit.text().strip() or None,
+                on_log=self._bridge.log_line.emit,
+                on_device_update=self._bridge.device_updated.emit,
+                on_connected=self._bridge.connected.emit,
+                on_disconnected=self._bridge.disconnected.emit,
+            )
+        except ValueError as exc:
+            QMessageBox.warning(self, "Invalid broker address", str(exc))
+            return
 
         self._connect_btn.setEnabled(False)
         self._status_label.setText("Connecting …")
