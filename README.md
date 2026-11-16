@@ -114,7 +114,7 @@ python3 -m venv .venv
 .venv/bin/python -m pytest
 ```
 
-The re-ak-core clone satisfies Nucleus-Kit's `re-ak-core>=1.0.2,<1.1` requirement, so pip keeps it instead of
+The re-ak-core clone satisfies Nucleus-Kit's `re-ak-core>=1.1.0,<1.2` requirement, so pip keeps it instead of
 downloading the published one. To reproduce the tested environment exactly, install `requirements.txt` instead of the
 `[dev,gui]` extras (it needs re-ak-core on PyPI).
 
