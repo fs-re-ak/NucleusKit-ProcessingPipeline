@@ -11,27 +11,27 @@ pytest.importorskip("pyqtgraph")
 
 from nucleuskit_toolkit.ui import plot_style  # noqa: E402
 from nucleuskit_toolkit.ui.theme import apply_theme  # noqa: E402
-from PySide6.QtWidgets import QApplication  # noqa: E402
 
 
 @pytest.fixture(scope="module")
-def app():
-    instance = QApplication.instance() or QApplication([])
-    apply_theme(instance, "dark")
-    return instance
+def app(qapp):
+    apply_theme(qapp, "dark")
+    return qapp
 
 
 @pytest.fixture
 def page(app):
     """An OfflinePage whose inspector thread is stopped afterwards.
 
-    The app stops it on aboutToQuit, which never fires in tests; a thread still running at exit makes Qt abort.
+    The app stops it on aboutToQuit, which fires only when the session-wide ``qapp`` is shut down; a thread still
+    running at exit makes Qt abort.
     """
     from nucleuskit_toolkit.ui.pages.offline_page import OfflinePage
 
     instance = OfflinePage()
     yield instance
     instance._stop_inspector()
+    instance.deleteLater()
 
 
 def test_process_page_has_no_run_summary_and_run_sits_in_step_2(page) -> None:
