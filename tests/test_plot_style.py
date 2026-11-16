@@ -10,12 +10,11 @@ pytest.importorskip("pyqtgraph")
 from nucleuskit_toolkit.ui import plot_style  # noqa: E402
 from nucleuskit_toolkit.ui.theme import apply_theme  # noqa: E402
 from PySide6.QtGui import QColor  # noqa: E402
-from PySide6.QtWidgets import QApplication  # noqa: E402
 
 
 @pytest.fixture(scope="module")
-def app():
-    return QApplication.instance() or QApplication([])
+def app(qapp):
+    return qapp
 
 
 def _contrast(a: str, b: str) -> float:
