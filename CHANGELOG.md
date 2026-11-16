@@ -1,5 +1,23 @@
 # Changelog
 
+## 2.3.0
+
+### Added
+
+- MQTT Controller: phones are discovered per experiment on `{experimentId}/+/status` and receive commands on
+  `{experimentId}/{recorderId}/control` (contract v1). Phones without an experiment still use the legacy
+  `vizia/status` and `{recorderId}/control/` topics.
+  - Vizia Mobile 2.6 publishes on the experiment topics once it has an experiment: Nucleus-Kit 2.2.2 and older do not
+    see those phones.
+- MQTT Controller: broker URLs `mqtt://`, `mqtts://` (TLS), `ws://` and `wss://`, broker login and an optional CA
+  certificate for TLS. The password is not saved.
+- Playback: `ZONE_START` / `ZONE_STOP` tags recorded from Prime's live zones are seeded as zones in new playback
+  annotations (re-ak-core 1.1.0).
+
+### Changed
+
+- Requires re-ak-core 1.1.0 (`re-ak-core>=1.1.0,<1.2`). Processing results are unchanged.
+
 ## 2.2.2
 
 - test(ui): stop the Process page inspector thread after each test
