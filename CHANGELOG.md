@@ -4,6 +4,9 @@
 
 ### Changed
 
+- Process page recommended model and CLI `--emotion-model` default follow re-ak-core `DEFAULT_MODEL`,
+  which is now **classical-emotion 2.13.0** (`standard-latest`). Needs a re-ak-core build that sets that
+  default; exact release keys remain selectable.
 - Requires re-ak-core 1.3.0 (`re-ak-core>=1.3.0,<1.4`). The Process and About pages already list models from
   `builtin_releases()`, so classical-emotion 2.7.0–2.11.0 appear once that core is installed. Later releases show
   up the same way when a newer re-ak-core is allowed by the dependency pin.
