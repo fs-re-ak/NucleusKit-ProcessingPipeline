@@ -248,7 +248,7 @@ Options:
 |---|---|
 | `--session DIR` | Process this session folder and exit (no GUI) |
 | `--config JSON` | Extra POV / FFmpeg settings. Applied after JSON files in the current directory and before environment variables ([Optional POV movie conversion](#optional-pov-movie-conversion)) |
-| `--emotion-model NAME` | Emotion model release (default = re-ak-core `DEFAULT_MODEL`, currently `classical-emotion-2.13.0`; `nucleuskit-toolkit --help` lists them) |
+| `--emotion-model NAME` | Emotion model release (default = re-ak-core `DEFAULT_MODEL`, currently `classical-emotion-2.14.0`; `nucleuskit-toolkit --help` lists them) |
 
 Outputs are written inside the session folder (see [Session layout](#session-layout)). Existing outputs are reused:
 delete a file under `results/` to recompute that step.
